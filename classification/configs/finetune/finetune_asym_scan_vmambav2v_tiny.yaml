@@ -1,0 +1,84 @@
+MODEL:
+  TYPE: vssm
+  NAME: vssm1_tiny_0230s
+  DROP_PATH_RATE: 0.0
+  VSSM:
+    EMBED_DIM: 96
+    DEPTHS: [ 2, 2, 8, 2 ]
+    SSM_D_STATE: 1
+    SSM_DT_RANK: "auto"
+    SSM_RATIO: 1.0
+    SSM_CONV: 3
+    SSM_CONV_BIAS: false
+    SSM_FORWARDTYPE: "v05_noz" # v3_noz
+    MLP_RATIO: 4.0
+    DOWNSAMPLE: "v3"
+    PATCHEMBED: "v2"
+    NORM_LAYER: "ln2d"
+  PRETRAINED: "./weights/vssm1_tiny_0230s_ckpt_epoch_264.pth"
+
+TRAIN:
+  START_EPOCH: 0
+  EPOCHS: 120
+  WARMUP_EPOCHS: 5
+  WEIGHT_DECAY: 1e-8
+  BASE_LR: 4e-5
+  WARMUP_LR: 1e-5
+  MIN_LR: 1e-5
+  CLIP_GRAD: 5.0
+  AUTO_RESUME: True
+  ACCUMULATION_STEPS: 1
+  USE_CHECKPOINT: False
+
+  LR_SCHEDULER:
+    NAME: cosine
+    DECAY_EPOCHS: 10
+    DECAY_RATE: 0.1
+    WARMUP_PREFIX: True
+    GAMMA: 0.1
+    MULTISTEPS: []
+
+  OPTIMIZER:
+    NAME: adamw
+    EPS: 1e-8
+    BETAS: (0.9, 0.999)
+    MOMENTUM: 0.9
+
+
+DATA:
+  DATA_PATH: "/home/Vim-main/data/ImageNet-1K"
+  BATCH_SIZE: 64
+
+AUG:
+  COLOR_JITTER: 0.2
+  AUTO_AUGMENT: 'rand-m9-mstd0.5-inc1'
+  REPROB: 0.25
+  REMODE: 'pixel'
+  RECOUNT: 1
+  MIXUP: 0.8
+  CUTMIX: 1.0
+  CUTMIX_MINMAX: None
+  MIXUP_PROB: 1.0
+  MIXUP_SWITCH_PROB: 0.5
+  MIXUP_MODE: 'batch'
+
+TEST:
+  CROP: True
+  SEQUENTIAL: False
+  SHUFFLE: False
+
+ENABLE_AMP: True
+AMP_ENABLE: True
+AMP_OPT_LEVEL: ''
+SAVE_FREQ: 20
+PRINT_FREQ: 10
+SEED: 42
+EVAL_MODE: False
+THROUGHPUT_MODE: False
+TRAINCOST_MODE: False
+FUSED_LAYERNORM: False
+
+FINETUNE_MODE: False
+
+OUTPUT: "./outputs/vssm_rand_scan_from_scratch_vmambav2v_tiny"
+TAG: "vssm_rand_scan_from_scratch_vmambav2v_tiny"

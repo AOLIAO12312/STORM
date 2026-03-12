@@ -1,0 +1,34 @@
+MODEL:
+  TYPE: vssm
+  NAME: vssm1_tiny_0230s
+  DROP_PATH_RATE: 0.0
+  VSSM:
+    EMBED_DIM: 96
+    DEPTHS: [ 2, 2, 8, 2 ]
+    SSM_D_STATE: 1
+    SSM_DT_RANK: "auto"
+    SSM_RATIO: 1.0
+    SSM_CONV: 3
+    SSM_CONV_BIAS: false
+    SSM_FORWARDTYPE: "v05_noz" # v3_noz
+    MLP_RATIO: 4.0
+    DOWNSAMPLE: "v3"
+    PATCHEMBED: "v2"
+    NORM_LAYER: "ln2d"
+
+DATA:
+  DATA_PATH: "/home/Vim-main/data/ImageNet-1K"
+  BATCH_SIZE: 64
+
+SAVE_FREQ: 20
+PRINT_FREQ: 10
+SEED: 42
+EVAL_MODE: False
+THROUGHPUT_MODE: False
+TRAINCOST_MODE: False
+FUSED_LAYERNORM: False
+
+FINETUNE_MODE: False
+
+OUTPUT: "./outputs/vssm_rand_scan_from_scratch_vmambav2v_tiny"
+TAG: "vssm_rand_scan_from_scratch_vmambav2v_tiny"
