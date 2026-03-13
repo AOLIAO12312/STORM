@@ -4,6 +4,8 @@ import copy
 from functools import partial
 from typing import Any
 from collections import OrderedDict
+import yaml
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -12,6 +14,10 @@ import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, trunc_normal_
 from fvcore.nn import flop_count, parameter_count
+from .cross_scan import CrossScanner
+
+from .utils import pool_downsample, random_prune_tokens, prune_tokens_by_index
+from .reduction import TokenReduction
 
 from .token_reduction.GridToMeDownSample import GridToMePlanBCHW
 from .token_reduction.FlexToMePlanBCHWv2 import FlexiToMePlanBCHWv2
@@ -33,7 +39,12 @@ from .token_reduction.EViT2D import EViT2DStructuredPruning
 from .token_reduction.RandomHardPruneFixedWindowToMe2D import RandomHardPruneFixedWindowToMe2D
 from .token_reduction.FixedWindowEViT2D import FixedWindowEViT2D
 from .token_reduction.TokenMerge2Dv4 import TokenMerge2Dv4,pad_zeros
-from .cross_scan import CrossScanner
+current_script_path = Path(__file__).resolve()
+config_path = current_script_path.parent / "token_reduction" / "strategies.yml"
+if not config_path.exists():
+    raise FileNotFoundError(f"config file not found: {config_path}")
+with open(config_path, "r", encoding="utf-8") as f:
+    strategies = yaml.safe_load(f)
 
 DropPath.__repr__ = lambda self: f"timm.DropPath({self.drop_prob})"
 # train speed is slower after enabling this opts.
@@ -1336,8 +1347,8 @@ class VSSBlock(nn.Module):
         post_norm: bool = False,
         # =============================
         _SS2D: type = SS2D,
-        stage_idx: int = -1, # 剪枝第3个stage
-        layer_idx: int = -1, # 共有8个layer
+        stage_idx: int = -1,
+        layer_idx: int = -1,
         **kwargs,
     ):
         super().__init__()
@@ -1449,7 +1460,7 @@ class VSSBlock(nn.Module):
             if_prune=False
         )
 
-        # VMambaPruner
+        # storm
         self.fixed_window_tome2dv2 = FixedWindowToMe2Dv2(
             if_prune=False,
             distance='l1',
@@ -1472,113 +1483,32 @@ class VSSBlock(nn.Module):
         )
 
         self.HSA_pruner = HSA()
-
         self.EViT_pruner = EViTTokenPruning()
-
         self.EViT2D_pruner = EViT2DStructuredPruning(score_mode="absmean", if_order=True)
-
         self.RandomHardPruneSTORM_pruner = RandomHardPruneFixedWindowToMe2D(
             window_size=6,
             if_order=True
         )
-
         self.fixed_window_evit2d = FixedWindowEViT2D(
             window_size=5,
             score_mode='absmean'
         )
-
-        prune_strategy_0 = [[0, 0], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]] # 0%
-        prune_strategy_1 = [[111, 109], [53, 0], [0, 25, 0, 23, 0, 21, 0, 0], [0, 0]]
-        prune_strategy_1p1 = [[220, 212], [0, 100], [0, 44, 0, 0, 0, 36, 0, 0], [0, 0]]
-        prune_strategy_2 = [[220, 212], [51, 49], [0, 23, 0, 21, 0, 0, 0, 0], [0, 0]]
-        prune_strategy_2p1 = [[220, 212], [0, 100], [0, 44, 0, 0, 0, 36, 0, 0], [0, 0]]
-        prune_strategy_3 = [[432, 400], [92, 84], [0, 19, 0, 17, 0, 0, 0, 0], [0, 0]]
-        prune_strategy_4 = [[636, 564], [84, 76], [0, 0, 0, 17, 0, 0, 0, 0], [0, 0]]
-        prune_strategy_5 = [[832, 704], [0, 0], [0, 19, 0, 17, 0, 0, 0, 0], [0, 0]]
-        prune_strategy_5_up = [[832, 704], [0, 0], [0, 52, 0, 44, 0, 36, 0, 0], [0, 0]]
-        prune_strategy_6 = [[1020, 820], [35, 33], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]]
-        prune_strategy_7 = [[1372, 740], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]]
-        prune_strategy_8 = [[1536, 700], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]]
-
-        prune_strategy_10 = [[327, 309], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]] # 10%
-        prune_strategy_11 = [[636, 564], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]] # 20%
-        prune_strategy_12 = [[1020, 672], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]] # 30%
-        prune_strategy_13 = [[1200, 640], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]] # 40%
-        prune_strategy_14 = [[1372, 740], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]] # 45%
-        prune_strategy_15 = [[1536, 700], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]] # 50%
-
-        prune_strategy_20 = [[636, 0], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]] # 10%
-        prune_strategy_21 = [[1200, 0], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]] # 20%
-        prune_strategy_22 = [[1692, 0], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]] # 30% ? 1536
-        prune_strategy_23 = [[1840, 0], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]] # 40%
-        prune_strategy_24 = [[2112, 0], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]] # 45%
-        prune_strategy_25 = [[2236, 0], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]] # 50%
-
-        prune_strategy_tome_1 = [[0, 0], [0, 0], [0, 52, 0, 44, 0, 36, 0, 0], [0, 0]]
-        prune_strategy_tome_2 = [[0, 0], [0, 0], [0, 52, 0, 44, 0, 36, 0, 28], [0, 0]]
-        prune_strategy_tome_3 = [[0, 0], [0, 0], [0, 96, 0, 36, 0, 28, 0, 0], [0, 0]]
-
-        prune_strategy_hybrid_1p1 = [[0, 220], [0, 53], [0, 25, 0, 23, 0, 21, 0, 19], [0, 0]]
-        prune_strategy_hybrid_2p1 = [[0, 432], [0, 100], [0, 23, 0, 21, 0, 19, 0, 17], [0, 0]]
-        prune_strategy_hybrid_3p1 = [[0, 636], [0, 141], [0, 21, 0, 19, 0, 17, 0, 15], [0, 0]]
-        prune_strategy_hybrid_4p1 = [[0, 832], [0, 176], [0, 19, 0, 17, 0, 15, 0, 13], [0, 0]]
-        prune_strategy_hybrid_5p1 = [[0, 1200], [0, 160], [0, 17, 0, 15, 0, 13, 0, 11], [0, 0]]
-
-        prune_strategy_hybrid_1p1_sb = [[0, 220], [0, 53], [0,0,0, 25,0,0, 0, 23,0,0, 0, 21,0, 0, 19], [0, 0]]
-        prune_strategy_hybrid_2p1_sb = [[0, 432], [0, 100], [0,0,0, 23, 0,0,0, 21, 0,0,0, 19, 0,0, 17], [0, 0]]
-        prune_strategy_hybrid_3p1_sb = [[0, 636], [0, 141], [0,0,0, 21,0,0, 0, 19,0,0, 0, 17,0,0, 0, 15], [0, 0]]
-        prune_strategy_hybrid_4p1_sb = [[0, 832], [0, 176], [0,0,0, 19,0,0, 0, 17,0,0, 0, 15, 0,0, 13], [0, 0]]
-        prune_strategy_hybrid_5p1_sb = [[0, 1200], [0, 160], [0,0,0, 17, 0,0,0, 15, 0,0,0, 13, 0,0, 11], [0, 0]]
-
-        prune_strategy_hybrid_6p1_sb = [[1692, 0], [0, 37], [0,0,0, 17, 0,0,0, 15, 0,0,0, 13, 0,0, 11], [0, 0]]
-        prune_strategy_hybrid_7p1_sb = [[1840, 0], [0, 0], [0,0,0, 17, 0,0,0, 15, 0,0,0, 13, 0,0, 11], [0, 0]]
-
-        prune_strategy_window_tome1 = [[0, 0], [0, 384], [0, 0, 0, 36, 0, 0, 0, 0], [0, 0]]
-        prune_strategy_window_tome2 = [[0, 0], [384, 0], [0, 0, 0, 36, 0, 0, 0, 0], [0, 0]]
-        prune_strategy_window_tome3 = [[0, 1372], [0, 0], [0, 0, 0, 57, 0, 0, 0, 0], [0, 0]]
-        prune_strategy_window_tome4 = [[1372, 0], [0, 0], [0, 0, 0, 57, 0, 0, 0, 0], [0, 0]]
-        self.prune_strategy = prune_strategy_hybrid_4p1_sb
+        self.reduction = TokenReduction("fixed_window_tome2dv2","prune_strategy_hybrid_5p1_sb", 0.02)
+        self.prune_strategy = strategies["prune_strategy_hybrid_5p1_sb"]
         self.prune_ratio = 0.03
-
-        quater_prune_strategy_0 = [[0, 0], [0, 0], [0, 0, 0, 0, 0, 0, 0, 0], [0, 0]]
-        quater_prune_strategy_1 = [[0, 1], [0, 1], [0, 1, 0, 0, 1, 0, 0, 1], [0, 0]]
-        quater_prune_strategy_2 = [[0, 1], [0, 1], [0, 1, 0, 1, 0, 1, 0, 1], [0, 0]]
-        quater_prune_strategy_3 = [[0, 0], [0, 0], [0, 1, 0, 1, 0, 1, 0, 1], [0, 0]]
-        quater_prune_strategy_4 = [[0, 1], [0, 1], [0, 0, 0, 0, 0, 0, 0, 1], [0, 0]]
-        quater_prune_strategy_5 = [[0, 1], [0, 1], [0, 1, 1, 1, 1, 1, 1, 1], [0, 0]]
-
-        quater_prune_strategy_6 = [[0, 1], [1, 1], [1, 1, 1, 1, 1, 1, 1, 1], [0, 0]]
-        quater_prune_strategy_7 = [[1, 1], [1, 1], [1, 1, 1, 1, 1, 1, 1, 1], [0, 0]]
-        self.quater_prune_strategy = quater_prune_strategy_0
-        self.method = "fixed_window_tome2dv2" # scale/quater/tome/pooling/random/none/grid_tome/flex_tome/tome2d/hybrid/tome2dv2/hybrid_scale_tome2d/conv_tome2d/topo_tome2d/a_pooling/
+        self.quater_prune_strategy = strategies["quater_prune_strategy_0"]
+        self.method = "substitution" # scale/quater/tome/pooling/random/none/grid_tome/flex_tome/tome2d/hybrid/tome2dv2/hybrid_scale_tome2d/conv_tome2d/topo_tome2d/a_pooling/
         # adaptive_window_tome2d/fixed_window_tome2d/fixed_window_tome1d/fixed_window_tome2dv2/fixed_window_tome2dv3/HSA/EViT/EViT2D/fixedWindowEViT2D
         # fixed_window_tome2dv2 is vmambapruner
+        # substitution
+
+
         if self.mlp_branch:
             _MLP = Mlp if not gmlp else gMlp
             self.norm2 = norm_layer(hidden_dim)
             mlp_hidden_dim = int(hidden_dim * mlp_ratio)
             self.mlp = _MLP(in_features=hidden_dim, hidden_features=mlp_hidden_dim, act_layer=mlp_act_layer, drop=mlp_drop_rate, channels_first=channel_first)
 
-    def get_prune_num(self, mode, size: int = None, ratio: float = None):
-        if mode == "manual":
-            assert hasattr(self, 'prune_strategy'), "prune_strategy attribute is required for manual mode"
-            assert hasattr(self, 'stage_idx') and hasattr(self,
-                                                          'layer_idx'), "stage_idx and layer_idx attributes are required for manual mode"
-            return self.prune_strategy[self.stage_idx][self.layer_idx]
-
-        elif mode == "auto":
-            assert size is not None and ratio is not None and 0 <= ratio <= 1, \
-                "size and ratio must be provided and ratio must be between 0 and 1 for auto mode"
-
-            if self.layer_idx % 2 == 1 and self.stage_idx != 3:
-                size_new = int(size * (1 - ratio))
-
-                return size ** 2 - size_new ** 2
-            else:
-                return 0
-
-        else:
-            raise ValueError(f"Unsupported mode: {mode}. Supported modes are 'manual' and 'auto'.")
 
     def get_prune_HW(self, H: int = None,W:int = None):
         assert H is not None and W is not None and self.prune_ratio is not None and 0 <= self.prune_ratio <= 1, \
@@ -1592,74 +1522,6 @@ class VSSBlock(nn.Module):
             return H,W
 
     def _forward(self, input: torch.Tensor):
-        def prune_tokens_by_index(x: torch.Tensor, sorted_idx: torch.Tensor) -> torch.Tensor:
-            """
-            Keep the appointed token indicated by sorted_idx
-
-            Args:
-                x: torch.Tensor, shape [B, D, L_orig]
-                sorted_idx: torch.Tensor, shape [B, L_keep, 1] 或 [B, L_keep]
-            Returns:
-                pruned_x: torch.Tensor, shape [B, D, L_keep]
-            """
-            B, D, L_orig = x.shape
-            if sorted_idx.dim() == 3 and sorted_idx.shape[-1] == 1:
-                sorted_idx = sorted_idx.squeeze(-1)  # [B, L_keep]
-            assert sorted_idx.shape[0] == B, f"Batch size 不匹配: {sorted_idx.shape[0]} vs {B}"
-            sorted_idx = sorted_idx.unsqueeze(1).expand(-1, D, -1)  # [B, D, L_keep]
-            pruned_x = torch.gather(x, dim=2, index=sorted_idx)
-            return pruned_x
-
-        def random_prune_tokens(x: torch.Tensor, num_prune: int, seed: int = None):
-            """
-            Randomly remove num_prune token
-
-            Args:
-                x (torch.Tensor): Input tensor [B, C, L]
-                num_prune (int): num of token to be pruned
-                seed (int, optional): random seed
-            Returns:
-                x_pruned (torch.Tensor): return tensor [B, C, L - num_prune]
-                sorted_idx (torch.Tensor): keep the index [B, L - num_prune, 1], asc
-            """
-            assert x.dim() == 3, f"Input must be [B, C, L], got {x.shape}"
-            B, C, L = x.shape
-            assert num_prune < L, "num_prune must be smaller than sequence length"
-            device = x.device
-            if seed is not None:
-                torch.manual_seed(seed)
-            prune_idx = torch.randperm(L, device=device)[:num_prune]
-            mask = torch.ones(L, dtype=torch.bool, device=device)
-            mask[prune_idx] = False
-            sorted_idx = torch.nonzero(mask, as_tuple=True)[0]  # [L_keep]
-            x_pruned = x.index_select(dim=2, index=sorted_idx)
-            sorted_idx = sorted_idx.unsqueeze(0).unsqueeze(-1).expand(B, -1, -1).contiguous()
-            return x_pruned, sorted_idx
-
-        def pool_downsample(x, mode='avg'):
-            """
-            Replace F.interpolate(x, size=[H//2, W//2], mode="nearest") to pooling
-
-            Supported mode:
-                - 'avg' : AvgPool2d
-                - 'max' : MaxPool2d
-                - 'nearest' :use nearest to keep consistent behavior
-                - 'lp' : L2 pooling
-            """
-            B, C, H, W = x.shape
-            if mode == 'avg':
-                pool = nn.AvgPool2d(kernel_size=2, stride=2)
-                return pool(x)
-            elif mode == 'max':
-                pool = nn.MaxPool2d(kernel_size=2, stride=2)
-                return pool(x)
-            elif mode == 'nearest':
-                return F.interpolate(x, size=[H // 2, W // 2], mode="nearest")
-            elif mode == 'lp':
-                pool = nn.LPPool2d(norm_type=2, kernel_size=2, stride=2)
-                return pool(x)
-            else:
-                raise ValueError("mode must be 'avg', 'max', 'nearest', or 'lp'")
 
         x = input
         B,D,H,W = x.shape
@@ -1670,7 +1532,6 @@ class VSSBlock(nn.Module):
                 if self.method == "none" or self.method is None:
                     x = x + self.drop_path(self.op(self.norm(x)))
                 elif self.method == "scale":
-                    # pre_stage像素级进行nearest剪枝
                     num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio) # classfication
                     L = H * W
                     H_new = W_new = math.isqrt(L - num_prune)
@@ -1694,7 +1555,6 @@ class VSSBlock(nn.Module):
                     if H*W - H_new*W_new != 0:
                         # x_op_merged, x_merged = self.merger(x_op.view(B, D, H * W), x.view(B, D, H * W), None,
                         #                                     num_prune)  # [B, D, L_kept]
-
                         x_op_merged, x_merged = self.merger(x_op.view(B, D, H * W), x.view(B, D, H * W), None,
                                                             H*W - H_new*W_new)  # [B, D, L_kept]
                         x = x_merged.view(B, D, H_new, W_new)
@@ -1950,8 +1810,8 @@ class VSSBlock(nn.Module):
                         x = F.adaptive_avg_pool2d(x, (H_new, W_new))
                     x = x + self.drop_path(x_op)
 
-
-
+                elif self.method == "substitution":
+                    x = self.reduction(x, self.layer_idx, self.stage_idx, self.drop_path, self.op, self.norm)
         if self.mlp_branch:
             if self.post_norm:
                 x = x + self.drop_path(self.norm2(self.mlp(x))) # FFN
