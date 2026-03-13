@@ -17,13 +17,11 @@ if ! command -v $TORCHRUN_CMD &> /dev/null; then
     TORCHRUN_CMD="$PYTHON_CMD -m torch.distributed.run"
 fi
 
-echo "Starting VSSM Throughput Test with torchrun..."
+echo "Starting VSSM Test with torchrun..."
 echo "Using devices: $CUDA_VISIBLE_DEVICES"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
-
-echo "Starting STORM Test..."
 
 $TORCHRUN_CMD \
     --nnodes=1 \

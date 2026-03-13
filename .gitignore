@@ -12,6 +12,7 @@
 **/tmp
 **/output
 **/work_dirs
+.idea
 logs
 ckpts
 log
