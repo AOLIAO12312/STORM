@@ -25,7 +25,6 @@ class ToMe2D(nn.Module):
     then the returned prune_fn(x) reuses those indices to prune ANY BCHW tensor of the same
     spatial size.
     """
-
     def __init__(
         self,
         if_prune: bool = False,         # if True: drop src instead of merging into dst (hard prune)
@@ -387,14 +386,11 @@ class ToMe2D(nn.Module):
 class FixedWindowToMe2Dv2(ToMe2D):
     """
     Window-aware 2D ToMe module.
-
     Extends ToMe2D by splitting the pair dimension into non-overlapping windows.
     Merge selection occurs independently within each window; no cross-window competition.
-
     Units:
       - `window_size` (w/h) refers to "pair indices" (the `j` dim in `scores[:, j]`).
       - Example: T_pair=9, window_size_w=3 → Windows: [0,1,2], [3,4,5], [6,7,8].
-
     Behavior:
       - If `window_size` is None or ≤ 0: Reverts to original ToMe2D (global top-r).
       - `num_prune_w/h`: Total pairs to merge per row/col, distributed proportionally across windows.
@@ -692,37 +688,27 @@ class FixedWindowToMe2Dv2(ToMe2D):
         return plan
 
 if __name__ == '__main__':
-
     B, C, H, W = 2, 8, 14, 14
     metric = torch.randn(B, C, H, W)
     x = torch.randn(B, C, H, W)
-
     print("Input metric size:", metric.shape)
     print("Input x size     :", x.shape)
-
     storm = FixedWindowToMe2Dv2(
         window_size=3,
         distance='cosine',
         merge_mode='sum',
         if_prune=False
     )
-
     H_target, W_target = 10, 10
-
     num_prune_h = H - H_target
     num_prune_w = W - W_target
-
     print(f"\nPruning: prune_h={num_prune_h}, prune_w={num_prune_w}")
-
     prune_fn = storm(
         metric,
         num_prune_w=num_prune_w,
         num_prune_h=num_prune_h
     )
-
     y = prune_fn(x)
-
     print("Output y size:", y.shape)
-
     assert y.shape == (B, C, H_target, W_target)
     print("\nTest passed: output matches expected size 13×13")

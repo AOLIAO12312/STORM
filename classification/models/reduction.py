@@ -33,7 +33,6 @@ if not config_path.exists():
 with open(config_path, "r", encoding="utf-8") as f:
     strategies = yaml.safe_load(f)
 
-
 class TokenReduction(nn.Module):
     def __init__(self, method: str = None, prune_strategy: str = None, prune_ratio: float = .0):
         super(TokenReduction, self).__init__()
@@ -281,7 +280,7 @@ class TokenReduction(nn.Module):
             x = x + drop_path(x_op)
         elif self.method == "anytome2d":
             x_op = op(norm(x))
-            # num_prune需要自动生成，生成的大小必须符合正方形要求
+            # num_prune must be cut to square
             num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
             L = H * W
             H = math.isqrt(L - num_prune)
@@ -446,5 +445,4 @@ class TokenReduction(nn.Module):
                 x_op = F.adaptive_avg_pool2d(x_op, (H_new, W_new))
                 x = F.adaptive_avg_pool2d(x, (H_new, W_new))
             x = x + drop_path(x_op)
-
         return x

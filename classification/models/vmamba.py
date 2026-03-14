@@ -15,36 +15,14 @@ import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, trunc_normal_
 from fvcore.nn import flop_count, parameter_count
 from .cross_scan import CrossScanner
-
-from .utils import pool_downsample, random_prune_tokens, prune_tokens_by_index
 from .reduction import TokenReduction
-
-from .token_reduction.GridToMeDownSample import GridToMePlanBCHW
-from .token_reduction.FlexToMePlanBCHWv2 import FlexiToMePlanBCHWv2
-from .token_reduction.ToMe2D import ToMe2D
-from .token_reduction.ToMe2Dv2 import ToMe2Dv2
-from .token_reduction.WToMe2D import AnyScaleToMe2D
-from .token_reduction.HybridScaleToMe2D import HybridScaleToMe2D
-from .token_reduction.ConvToMe2D import ConvToMe2D
-from .token_reduction.TopoToMe2D import TopoToMe2D
-from .token_reduction.AdptivaPooling2D import AdaptivePool2D
-from .token_reduction.WindowToMe2D import AdaptiveWindowToMe2D
-from .token_reduction.FixedWindowToMe2D import FixedWindowToMe2D
-from .token_reduction.FixedWindowToMe1D import FixedWindowToMe1D
-from .token_reduction.FixedWindowToMe2Dv2 import FixedWindowToMe2Dv2
-from .token_reduction.FixedWindowToMe2Dv3 import FixedWindowToMe2Dv3
-from .token_reduction.HSA import HSA
-from .token_reduction.EViT import EViTTokenPruning
-from .token_reduction.EViT2D import EViT2DStructuredPruning
-from .token_reduction.RandomHardPruneFixedWindowToMe2D import RandomHardPruneFixedWindowToMe2D
-from .token_reduction.FixedWindowEViT2D import FixedWindowEViT2D
-from .token_reduction.TokenMerge2Dv4 import TokenMerge2Dv4,pad_zeros
 current_script_path = Path(__file__).resolve()
 config_path = current_script_path.parent / "token_reduction" / "strategies.yml"
 if not config_path.exists():
     raise FileNotFoundError(f"config file not found: {config_path}")
 with open(config_path, "r", encoding="utf-8") as f:
     strategies = yaml.safe_load(f)
+
 
 DropPath.__repr__ = lambda self: f"timm.DropPath({self.drop_prob})"
 # train speed is slower after enabling this opts.
@@ -425,21 +403,6 @@ def time_op(fn, *args, device=None, **kwargs):
     return out, elapsed_s
 
 def compute_prune_per_layer(L: int, n: int, D: float, mode: str = "round") -> int:
-    """
-    计算每层需要剪枝的 token 数量 p (整数)
-
-    参数:
-        L (int): 初始 token 数
-        n (int): 剪枝层数
-        D (float): 目标 drop 率 (0~1，例如 0.23 表示 23%)
-        mode (str): 取整模式
-            "round" -> 四舍五入
-            "floor" -> 向下取整
-            "ceil"  -> 向上取整
-
-    返回:
-        p (int): 每层需要剪枝的 token 数
-    """
     p_float = (2 * D * L) / (n + 1)
 
     if mode == "round":
@@ -449,20 +412,9 @@ def compute_prune_per_layer(L: int, n: int, D: float, mode: str = "round") -> in
     elif mode == "ceil":
         return math.ceil(p_float)
     else:
-        raise ValueError("mode 必须是 'round' / 'floor' / 'ceil'")
+        raise ValueError("mode must be 'round' / 'floor' / 'ceil'")
 
 def compute_final_length(L: int, n: int, p: int) -> int:
-    """
-    计算剪枝后的最终 token 长度
-
-    参数:
-        L (int): 初始 token 数
-        n (int): 剪枝层数
-        p (int): 每层剪枝 token 数
-
-    返回:
-        L_final (int): 剪枝后最终 token 长度
-    """
     return L - p * n
 
 class DepthwiseConv1D(nn.Module):
@@ -471,15 +423,13 @@ class DepthwiseConv1D(nn.Module):
         self.depthwise = nn.Conv2d(
             in_channels=channels,
             out_channels=channels,
-            kernel_size=(1, kernel_size),              # 只在宽度方向做 1D 卷积
-            padding=(0, (kernel_size - 1) // 2),       # 高度方向不 padding，宽度方向对齐
+            kernel_size=(1, kernel_size),
+            padding=(0, (kernel_size - 1) // 2),
             groups=channels,
             bias=bias
         )
 
     def forward(self, x):
-        # x: [B, C, H, W]
-        # 只在 W 维度上做 depthwise 1D 卷积，不混合不同高度上的信息
         return self.depthwise(x)
 
 
@@ -560,15 +510,6 @@ class SS2Dv2:
         # self.stage_size = [56,26,12,5]
         self.stage_size = [56, 28, 14, 7]
         self.num_prune = [768,0,0,0]
-        self.merger = TokenMerge2Dv4(
-            num_prune=0,  # 每轮合并 r 对（等价减少 r 个 token）
-            if_prune=False,  # True=纯删；False=合并到 dst（推荐）
-            if_order=True,  # True=保持原顺序；False=不保持
-            distance='cosine',  # 'cosine' / 'l1' / 'l2'
-            merge_mode='sum',  # 权重聚合方式（传给 scatter_reduce）
-            choose='max'  # 选择策略
-        )
-
         # forward_type debug =======================================
         FORWARD_TYPES = dict(
             v01=partial(self.forward_corev2, force_fp32=(not self.disable_force32), selective_scan_backend="mamba", scan_force_torch=True),
@@ -752,7 +693,7 @@ class SS2Dv2:
             xs = cross_scan_fn(x, in_channel_first=True, out_channel_first=True, scans=_scan_mode,
                                force_torch=scan_force_torch)  # generate cross scan seq
 
-            # # TODO：在输出侧剪枝
+            # # Prune at output side
             # if self.stage_idx == 0 or self.stage_idx == 1 or self.stage_idx == 2 or self.stage_idx == 3:
             #     if self.stage_idx == 0 and self.layer_idx == 0:
             #         xs = cross_scan_fn(x, in_channel_first=True, out_channel_first=True, scans=_scan_mode,
@@ -766,8 +707,8 @@ class SS2Dv2:
             # else:
             #     xs = cross_scan_fn(x, in_channel_first=True, out_channel_first=True, scans=_scan_mode, force_torch=scan_force_torch) # generate cross scan seq
 
-            # TODO：对xs执行序列删减
-            # TODO：需要一个工具对序列中的空洞token位置进行记录
+            # prune xs
+            # record the original pos
             if no_einsum:
                 x_dbl = F.conv1d(xs.view(B, -1, L), self.x_proj_weight.view(-1, D, 1), bias=(x_proj_bias.view(-1) if x_proj_bias is not None else None), groups=K)
                 dts, Bs, Cs = torch.split(x_dbl.view(B, K, -1, L), [R, N, N], dim=2)
@@ -1386,432 +1327,28 @@ class VSSBlock(nn.Module):
                 stage_idx=stage_idx,
                 layer_idx=layer_idx
             )
-
         self.drop_path = DropPath(drop_path)
-        self.merger = TokenMerge2Dv4(
-            num_prune=0,
-            if_prune=True,
-            if_order=True,
-            distance='cosine',
-            merge_mode='sum',
-            choose='max'
-        )
-        self.grid_tome_down = GridToMePlanBCHW(win=2, distance='cosine', pos_lambda=0.1, weighting='softmax')
-        # self.flex_tome = FlexiToMePlanBCHW(
-        #     kernel=2,
-        #     distance='cosine',
-        #     weighting='softmax',
-        #     alpha=1.0,
-        #     beta=1,
-        #     pos_lambda=0,
-        #     gate_tau=None,
-        # )
-
-        self.merge2d = ToMe2D(if_order=True, distance='l1', merge_mode='sum')
-        self.merge2dv2 = ToMe2Dv2(
-            if_order=True,
-            distance='cosine',
-            merge_mode='sum',
-            use_importance=True,
-            imp_lambda=0.5,
-        )
-        self.WToMe2D = AnyScaleToMe2D(imp_mode="ones")
-        self.flex_tome = FlexiToMePlanBCHWv2(
-                kernel=2,
-                distance='cosine',
-                weighting='softmax',
-                alpha=25.0,
-                beta=1.0,
-                pos_lambda=0.0,
-                gate_tau=None,
-                align_corners=False,
-                requires_grad_plan=False,
-                strategy="flex",
-            )
-        self.conv_tome_2d = ConvToMe2D(
-            imp_mode="l2",
-            alpha=6.0,
-            beta=1.0,
-        )
-
-        self.hybrid_scale_tome2d = HybridScaleToMe2D(
-            rr_tome_max=0.20,
-            tome_distance="cosine",
-            imp_mode="l2"
-        )
-
-        self.topo_tome2d = TopoToMe2D(
-            imp_mode="l2",
-            alpha=1.0,
-            beta=1.0,
-            local_window=(3, 3),
-            radius_factor=2.0,
-        )
-
-        self.adaptive_pool2d = AdaptivePool2D()
-
-        self.window_tome2d = AdaptiveWindowToMe2D(if_order=True, distance='cosine', merge_mode='sum',
-                                                  max_pad_h=2, max_pad_w=2)
-
-        self.fixed_window_tome2d = FixedWindowToMe2D(
-            window_size=9,
-            distance='l1',
-            merge_mode='sum',
-            if_prune=False
-        )
-
-        # storm
-        self.fixed_window_tome2dv2 = FixedWindowToMe2Dv2(
-            if_prune=False,
-            distance='l1',
-            merge_mode='sum',
-            window_size=5,
-        )
-
-        self.fixed_window_tome2dv3 =  FixedWindowToMe2Dv3(
-            if_prune=False,
-            distance='l1',
-            merge_mode='sum',
-            window_size=5,
-        )
-
-        self.fixed_window_tome1d = FixedWindowToMe1D(
-            window_size=5,
-            distance="cosine",
-            merge_mode="sum",
-            if_prune=False,
-        )
-
-        self.HSA_pruner = HSA()
-        self.EViT_pruner = EViTTokenPruning()
-        self.EViT2D_pruner = EViT2DStructuredPruning(score_mode="absmean", if_order=True)
-        self.RandomHardPruneSTORM_pruner = RandomHardPruneFixedWindowToMe2D(
-            window_size=6,
-            if_order=True
-        )
-        self.fixed_window_evit2d = FixedWindowEViT2D(
-            window_size=5,
-            score_mode='absmean'
-        )
-        self.reduction = TokenReduction("fixed_window_tome2dv2","prune_strategy_hybrid_5p1_sb", 0.02)
-        self.prune_strategy = strategies["prune_strategy_hybrid_5p1_sb"]
+        self.reduction = TokenReduction("fixed_window_tome2dv2","prune_strategy_hybrid_3p1_sb", 0.02)
         self.prune_ratio = 0.03
         self.quater_prune_strategy = strategies["quater_prune_strategy_0"]
         self.method = "substitution" # scale/quater/tome/pooling/random/none/grid_tome/flex_tome/tome2d/hybrid/tome2dv2/hybrid_scale_tome2d/conv_tome2d/topo_tome2d/a_pooling/
         # adaptive_window_tome2d/fixed_window_tome2d/fixed_window_tome1d/fixed_window_tome2dv2/fixed_window_tome2dv3/HSA/EViT/EViT2D/fixedWindowEViT2D
         # fixed_window_tome2dv2 is vmambapruner
         # substitution
-
-
         if self.mlp_branch:
             _MLP = Mlp if not gmlp else gMlp
             self.norm2 = norm_layer(hidden_dim)
             mlp_hidden_dim = int(hidden_dim * mlp_ratio)
             self.mlp = _MLP(in_features=hidden_dim, hidden_features=mlp_hidden_dim, act_layer=mlp_act_layer, drop=mlp_drop_rate, channels_first=channel_first)
 
-
-    def get_prune_HW(self, H: int = None,W:int = None):
-        assert H is not None and W is not None and self.prune_ratio is not None and 0 <= self.prune_ratio <= 1, \
-            "size and ratio must be provided and ratio must be between 0 and 1 for auto mode"
-
-        if self.stage_idx == 0 and self.layer_idx == 0:
-            H_new = int(H * (1 - self.prune_ratio))
-            W_new = int(W * (1 - self.prune_ratio))
-            return H_new, W_new
-        else:
-            return H,W
-
     def _forward(self, input: torch.Tensor):
-
         x = input
         B,D,H,W = x.shape
         if self.ssm_branch:
             if self.post_norm:
                 x = x + self.drop_path(self.norm(self.op(x)))
             else:
-                if self.method == "none" or self.method is None:
-                    x = x + self.drop_path(self.op(self.norm(x)))
-                elif self.method == "scale":
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio) # classfication
-                    L = H * W
-                    H_new = W_new = math.isqrt(L - num_prune)
-                    # H_new, W_new = self.get_prune_HW(H,W) # coco
-                    if self.stage_idx == 0 and False:
-                        if x.shape[-2:] != (H_new, W_new):
-                            x = F.interpolate(x, size=[H_new, W_new], mode="area")  # nearest/bilinear/area
-                        x_op = self.op(self.norm(x))
-                    else:
-                        x_op = self.op(self.norm(x))
-                        if x.shape[-2:] != (H_new, W_new):
-                            x = F.interpolate(x, size=[H_new, W_new], mode="nearest")  # nearest/bilinear/area
-                            x_op = F.interpolate(x_op, size=[H_new, W_new], mode="nearest")
-                    x = x + self.drop_path(x_op)
-                elif self.method == "tome":
-                    # num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    # H_new = W_new = math.isqrt(L - num_prune)  # classfication
-                    H_new, W_new = self.get_prune_HW(H, W)  # coco
-                    x_op = self.op(self.norm(x))
-                    if H*W - H_new*W_new != 0:
-                        # x_op_merged, x_merged = self.merger(x_op.view(B, D, H * W), x.view(B, D, H * W), None,
-                        #                                     num_prune)  # [B, D, L_kept]
-                        x_op_merged, x_merged = self.merger(x_op.view(B, D, H * W), x.view(B, D, H * W), None,
-                                                            H*W - H_new*W_new)  # [B, D, L_kept]
-                        x = x_merged.view(B, D, H_new, W_new)
-                        x_op = x_op_merged.view(B, D, H_new, W_new)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "random":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.prune_strategy[self.stage_idx][self.layer_idx]
-                    x_op, sorted_idx = random_prune_tokens(x_op.view(B, D, H * W), num_prune)
-                    if sorted_idx is not None:
-                        x = prune_tokens_by_index(x.flatten(2), sorted_idx)
-                        x = pad_zeros(x)
-                        L = x.shape[-1]
-                        H = math.isqrt(L)
-                        x = x.view(B, D, H, H)
-                    x = x + self.drop_path(x_op.view(B, D, H, H))
-                elif self.method == "quater":
-                    # if_prune = self.quater_prune_strategy[self.stage_idx][self.layer_idx]
-                    if_prune = True
-                    if if_prune:
-                        x_prune = F.interpolate(x, size=[H//2,W//2], mode="nearest")
-                        x_op = self.op(self.norm(x_prune))
-                        x_op = F.interpolate(x_op, size=[H, W], mode="nearest")
-                    else:
-                        x_op = self.op(self.norm(x))
-                    x = x + self.drop_path(x_op)
-                elif self.method == "pooling":
-                    if_prune = self.quater_prune_strategy[self.stage_idx][self.layer_idx]
-                    if if_prune == 1:
-                        x_prune = pool_downsample(x, mode='max')  # 或 'max' / 'nearest' / 'lp'
-                        x_op = self.op(self.norm(x_prune))
-                        x_op = F.interpolate(x_op, size=[H, W], mode="nearest")
-                    else:
-                        x_op = self.op(self.norm(x))
-                    x = x + self.drop_path(x_op)
-                elif self.method == "grid_tome":
-                    x_op = self.op(self.norm(x))
-                    if self.stage_idx == 0 and self.layer_idx == 0:
-                        prune = self.grid_tome_down(metric=x_op)
-                        x_op = prune(x_op, mode='wmean')
-                        x = prune(x, mode='wmean')
-                    x = x + self.drop_path(x_op)
-                elif self.method == "flex_tome":
-                    x_op = self.op(self.norm(x))
-                    # num_prune需要自动生成，生成的大小必须符合正方形要求
-                    num_prune = self.get_prune_num(mode="manual",size=H,ratio=self.prune_ratio)
-                    L = H * W
-                    H = math.isqrt(L - num_prune)
-                    if x.shape[-2:] != [H,H]:
-                        prune_fn = self.flex_tome(metric=x_op,target_hw=(H,H))
-                        x_op = prune_fn(x_op, mode='wsum')
-                        x = prune_fn(x, mode='wsum')
-                    x = x + self.drop_path(x_op)
-                elif self.method == "tome2d":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = math.isqrt(L - num_prune)
-                    if x.shape[-2:] != (H_new, H_new):
-                        prune_fn = self.merge2d(x, num_prune_w=H - H_new, num_prune_h=H - H_new)
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "hybrid":
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = math.isqrt(L - num_prune)
-                    if self.stage_idx == 0:
-                        if x.shape[-2:] != (H_new, H_new):
-                            x = F.interpolate(x, size=[H_new, H_new], mode="nearest")  # nearest/bilinear/area
-                        x_op = self.op(self.norm(x))
-                    else:
-                        x_op = self.op(self.norm(x))
-                        if x.shape[-2:] != (H_new, H_new):
-                            prune_fn = self.merge2d(x, num_prune_w=H - H_new, num_prune_h=H - H_new)
-                            x_op = prune_fn(x_op)
-                            x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "tome2dv2":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = math.isqrt(L - num_prune)
-                    if x.shape[-2:] != (H_new, H_new):
-                        prune_fn = self.merge2dv2(x, num_prune_w=H - H_new, num_prune_h=H - H_new)
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "anytome2d":
-                    x_op = self.op(self.norm(x))
-                    # num_prune需要自动生成，生成的大小必须符合正方形要求
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H = math.isqrt(L - num_prune)
-                    if x.shape[-2:] != [H, H]:
-                        prune_fn = self.WToMe2D(metric=x, target_hw=(H, H))
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "hybrid_scale_tome2d":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = math.isqrt(L - num_prune)
-                    if x.shape[-2:] != (H_new, H_new):
-                        prune_fn = self.hybrid_scale_tome2d(x, target_hw=(H_new, H_new))
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "conv_tome2d":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = math.isqrt(L - num_prune)
-                    if x.shape[-2:] != (H_new, H_new):
-                        prune_fn = self.conv_tome_2d(x, target_hw=(H_new, H_new))
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "topo_tome2d":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = math.isqrt(L - num_prune)
-                    if x.shape[-2:] != (H_new, H_new):
-                        prune_fn = self.topo_tome2d(x, target_hw=(H_new, H_new))
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "a_pooling":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = math.isqrt(L - num_prune)
-                    if x.shape[-2:] != (H_new, H_new):
-                        prune_fn = self.adaptive_pool2d(x, target_hw=(H_new, H_new))
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "adaptive_window_tome2d":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = math.isqrt(L - num_prune)
-                    if x.shape[-2:] != (H_new, H_new):
-                        prune_fn = self.window_tome2d(x,  num_prune_w=H - H_new, num_prune_h=H - H_new)
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "fixed_window_tome2d":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = math.isqrt(L - num_prune)
-                    if x.shape[-2:] != (H_new, H_new):
-                        prune_fn = self.fixed_window_tome2d(x, num_prune_w=H - H_new, num_prune_h=H - H_new)
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "fixed_window_tome1d":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = math.isqrt(L - num_prune)
-                    if x.shape[-2:] != (H_new, H_new):
-                        prune_fn = self.fixed_window_tome1d(x, num_prune_w=H - H_new, num_prune_h=H - H_new)
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "fixed_window_tome2dv2":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = W_new = math.isqrt(L - num_prune) # classfication
-                    # H_new, W_new = self.get_prune_HW(H, W) # coco
-                    if x.shape[-2:] != (H_new, W_new):
-                        prune_fn = self.fixed_window_tome2dv2(x, num_prune_w=W - W_new, num_prune_h=H - H_new)
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "fixed_window_tome2dv3":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = math.isqrt(L - num_prune)
-                    if x.shape[-2:] != (H_new, H_new):
-                        prune_fn = self.fixed_window_tome2dv3(x, num_prune_w=H - H_new, num_prune_h=H - H_new)
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "HSA":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = W_new = math.isqrt(L - num_prune) # classfication
-                    if x.shape[-2:] != (H_new, W_new):
-                        x_op_merged,x_merged = self.HSA_pruner(x_op.view(B, D, H * W), x.view(B, D, H * W),num_prune)
-                        x = x_merged.view(B, D, H_new, W_new)
-                        x_op = x_op_merged.view(B, D, H_new, W_new)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "EViT":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = W_new = math.isqrt(L - num_prune) # classfication
-                    # H_new, W_new = self.get_prune_HW(H, W)
-                    if x.shape[-2:] != (H_new, W_new):
-                        x_op_merged,x_merged = self.EViT_pruner(x_op.view(B, D, H * W), x.view(B, D, H * W),H*W-H_new*W_new)
-                        x = x_merged.view(B, D, H_new, W_new)
-                        x_op = x_op_merged.view(B, D, H_new, W_new)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "EViT2D":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    # H_new = W_new = math.isqrt(L - num_prune) # classfication
-                    H_new, W_new = self.get_prune_HW(H, W)
-                    if x.shape[-2:] != (H_new, W_new):
-                        prune_fn = self.EViT2D_pruner(x, num_prune_w=H - H_new, num_prune_h=W - W_new)
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "randomToMe2D":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = W_new = math.isqrt(L - num_prune) # classfication
-                    # H_new, W_new = self.get_prune_HW(H, W)
-                    if x.shape[-2:] != (H_new, W_new):
-                        prune_fn = self.RandomHardPruneSTORM_pruner(x, num_prune_w=H - H_new, num_prune_h=W - W_new)
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "fixedWindowEViT2D":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = W_new = math.isqrt(L - num_prune) # classfication
-                    # H_new, W_new = self.get_prune_HW(H, W) # coco
-                    if x.shape[-2:] != (H_new, W_new):
-                        prune_fn = self.fixed_window_evit2d(x, num_prune_w=W - W_new, num_prune_h=H - H_new)
-                        x_op = prune_fn(x_op)
-                        x = prune_fn(x)
-                    x = x + self.drop_path(x_op)
-                elif self.method == "adaptive_max_pooling":
-                    x_op = self.op(self.norm(x))
-                    num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio)
-                    L = H * W
-                    H_new = W_new = math.isqrt(L - num_prune) # classfication
-                    # H_new, W_new = self.get_prune_HW(H, W) # coco
-                    if x.shape[-2:] != (H_new, W_new):
-                        x_op = F.adaptive_avg_pool2d(x_op, (H_new, W_new))
-                        x = F.adaptive_avg_pool2d(x, (H_new, W_new))
-                    x = x + self.drop_path(x_op)
-
-                elif self.method == "substitution":
-                    x = self.reduction(x, self.layer_idx, self.stage_idx, self.drop_path, self.op, self.norm)
+                x = self.reduction(x, self.layer_idx, self.stage_idx, self.drop_path, self.op, self.norm)
         if self.mlp_branch:
             if self.post_norm:
                 x = x + self.drop_path(self.norm2(self.mlp(x))) # FFN
@@ -1825,38 +1362,31 @@ class VSSBlock(nn.Module):
         else:
             return self._forward(input)
 
-# 1×n 卷积
+# 1×n conv
 class DownsampleModule1D(nn.Module):
     def __init__(self, dim, out_dim, kernel_size):
         super(DownsampleModule1D, self).__init__()
         self.dim = dim
         self.out_dim = out_dim
 
-        assert kernel_size in [1, 3, 5], "根据需要自己扩展支持的 kernel_size"
+        assert kernel_size in [1, 3, 5], "support your own kernel_size"
 
-        # 只在宽度方向做卷积：kernel_size=(1, n)
-        # H 方向：kernel_h=1, stride_h=2（不做纵向卷积，只隔行采样）
-        # W 方向：kernel_w=n, stride_w=2（1D 卷积 + 下采样）
         if kernel_size == 1:
             padding_w = 0
         elif kernel_size in [3, 5]:
-            padding_w = kernel_size // 2   # 这样 W 为偶数时：输出宽度基本是 W/2
+            padding_w = kernel_size // 2
 
         self.conv = nn.Conv2d(
             in_channels=self.dim,
             out_channels=self.out_dim,
             kernel_size=(1, kernel_size),
-            stride=(2, 2),                 # H/2, W/2
-            padding=(0, padding_w)         # 只在宽度方向 pad
+            stride=(2, 2),
+            padding=(0, padding_w)
         )
 
     def forward(self, x):
-        # x: [B, C, H, W] -> [B, out_dim, H/2, W/2] （假设 H,W 为偶数）
         return self.conv(x)
 
-
-
-# 定义一个新的 Module 来封装 downsample 操作
 class DownsampleModule(nn.Module):
     def __init__(self, dim, out_dim,kernel_size):
         super(DownsampleModule, self).__init__()
@@ -2153,12 +1683,11 @@ class VSSM(nn.Module):
         layer_times = []
         total_time = 0.0
         for i, layer in enumerate(self.layers): # 4 layers
-            # TODO:在第三层尝试进行剪枝操作
             x = layer(x) # [1, 96, 56, 56] \ [1, 192, 28, 28] \ [1, 384, 14, 14] \ [1, 768, 7, 7]
 
             # start = time.time()
             # x = layer(x)
-            # torch.cuda.synchronize()  # 如果用GPU，确保时间测得准确
+            # torch.cuda.synchronize()
             # end = time.time()
             #
             # elapsed = end - start
@@ -2167,7 +1696,6 @@ class VSSM(nn.Module):
             # print(f"Layer {i + 1} output shape: {x.shape}, time: {elapsed:.6f}s")
         x = self.classifier(x) # [1, 1000]
 
-        # # # 打印每层的比例
         # print("\n==== Time Proportion per Layer ====")
         # for i, t in enumerate(layer_times):
         #     print(f"Layer {i + 1}: {t:.6f}s, ratio={t / total_time * 100:.2f}%")
