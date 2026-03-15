@@ -30,30 +30,30 @@
 
 <div align="justify">
 
-Mamba demonstrates strong efficiency in modeling long visual sequences. However, when token reduction is applied to structurally enhanced Mamba variants, these models exhibit a severe performance collapse. We attribute this degradation to the spatially agnostic nature of existing reduction methods, which violate the two-dimensional structural premise required by the selective scanning mechanism. In this work, we propose STORM, a spatial-aware token reduction framework designed to maintain structural integrity throughout the compression process. STORM reformulates reduction into a structured operation on spatial units, enforcing localized constraints to maintain both grid topology and neighborhood coherence. As a plug-and-play module, STORM equips existing reduction pipelines with explicit spatial awareness without any training. Empirical results demonstrate that STORM achieves state-of-the-art pruning accuracy across diverse vision Mamba backbones under training-free settings. Notably, STORM delivers a substantial accuracy recovery on VMamba, outperforming prior methods by up to 63.3% in top-1 accuracy. Meanwhile, STORM incurs only a 1.0% accuracy drop on PlainMamba, achieving performance comparable to ViT.
+Mamba demonstrates strong efficiency in modeling long visual sequences. However, when token reduction is applied to structurally enhanced Mamba variants, these models exhibit a severe performance collapse. We attribute this degradation to the spatially agnostic nature of existing reduction methods, which violate the two-dimensional structural premise required by the selective scanning mechanism. 
+
+In this work, we propose STORM, a spatial-aware token reduction framework designed to maintain structural integrity throughout the compression process. STORM reformulates reduction into a structured operation on spatial units, enforcing localized constraints to maintain both grid topology and neighborhood coherence. As a plug-and-play module, STORM equips existing reduction pipelines with explicit spatial awareness without any training. Empirical results demonstrate that STORM achieves state-of-the-art pruning accuracy across diverse vision Mamba backbones under training-free settings. Notably, STORM delivers a substantial accuracy recovery on VMamba, outperforming prior methods by up to 63.3% in top-1 accuracy. Meanwhile, STORM incurs only a 1.0% accuracy drop on PlainMamba, achieving performance comparable to ViT.
 
 </div>
 
 ---
 
-[//]: # (TODO: Start with this)
-
 ### 🧠 Methodology
 
 <div align="center">
 
-![Main Framework Figure](assets/main_framework.png "STORM Framework") <!-- 将 main_framework.png 替换为您实际的图片文件名 -->
-<p><em>Overview of the STORM framework.</em></p>
+![Main Framework Figure](assets/main_framework.png "STORM Framework")
+<p><em>Overview of STORM. The framework performs spatially structured token reduction in two decoupled stages: row-wise and then column-wise reduction within localized windows, preserving the 2D grid layout required for selective scanning.</em></p>
 
 </div>
 
 <div align="justify">
 
-The core idea of STORM is to leverage spatial information within the feature maps to guide the token reduction process. This is achieved through a multi-step mechanism:
+The STORM framework proposes a lightweight solution that refactors token reduction into a spatially structured process, as illustrated in Figure 3 above. The framework comprises three core features:
 
-1.  **Spatial Prior Generation:** A lightweight module analyzes the spatial distribution of features to generate a saliency map or importance score for each spatial location.
-2.  **Token Selection:** Based on the generated priors, less important tokens are identified and marked for reduction.
-3.  **Efficient Processing:** The reduced set of tokens is then fed into the subsequent layers of the VSSM, significantly decreasing the computational load without substantial loss in performance.
+1.  **Dimensional Decoupling:** Instead of globally flattening tokens, STORM refactors the reduction process into two successive stages—row-wise and column-wise. This preserves a regular 2D grid topology, ensuring seamless compatibility with the 2D Selective Scan (SS2D) mechanism in Mamba.
+2.  **Localized Window:** To prevent semantic distortion from long-range interference, STORM partitions the feature map into non-overlapping local windows. Reduction operations are strictly confined within these contiguous neighborhoods to protect fine-grained details and local coherence.
+3.  **Faithful Scanning Restoration:** By maintaining a structured layout, STORM ensures that the causal propagation paths of the four-way scanning are not disrupted. This allows the model to retain accurate spatial awareness and performance during inference without requiring any re-training.
 
 For detailed algorithmic descriptions and ablation studies, please refer to Section 3 of our [paper](link-to-paper).
 
@@ -61,28 +61,59 @@ For detailed algorithmic descriptions and ablation studies, please refer to Sect
 
 ---
 
-### 📊 Results
+### 📊 Classification on ImageNet-1K
 
 <div align="center">
 
-| Model | Dataset | Accuracy (%) | Speed-up vs. Baseline |
-| :---: | :-----: | :----------: | :-------------------: |
-| Baseline VSSM | ImageNet-1K | 82.1 | - |
-| STORM | ImageNet-1K | 81.9 | 2.3x |
-
-<p><em>Performance comparison highlighting the efficiency gains of STORM.</em></p>
+| Method              | GFlops   | Params (M) | Acc1 (%) | Δ (%)    |
+|---------------------|----------|------------|----------|----------|
+| **VMamba-B (Base)** |          |            |          |          |
+| VMamba-B            | 15.36    | 89         | 83.9     | -        |
+| +EViT               | 9.33     | 89         | 24.4     | 59.5↓    |
+| +ToMe               | 9.69     | 89         | 35.7     | 48.2↓    |
+| **+STORM (EViT)**   | **9.33** | **89**     | **82.2** | **1.7↓** |
+| **+STORM (ToMe)**   | **9.33** | **89**     | **82.6** | **1.3↓** |
+| **PlainMamba-L3**   |          |            |          |          |
+| PlainMamba-L3       | 14.44    | 51         | 82.2     | -        |
+| +EViT               | 9.74     | 51         | 75.2     | 7.0↓     |
+| +ToMe               | 9.75     | 51         | 76.1     | 6.1↓     |
+| **+STORM (EViT)**   | **9.33** | **51**     | **82.2** | **1.7↓** |
+| **+STORM (ToMe)**   | **9.74** | **51**     | **80.9** | **1.3↓** |
+| **LocalMamba-S**    |          |            |          |          |
+| LocalMamba-S        | 11.37    | 50         | 83.7     | -        |
+| +EViT               | 6.70     | 50         | 19.3     | 64.4↓    |
+| +ToMe               | 6.96     | 50         | 28.7     | 55.0↓    |
+| **+STORM (EViT)**   | **6.70** | **50**     | **78.5** | **5.2↓** |
+| **+STORM (ToMe)**   | **6.70** | **50**      | **79.6** | **4.1↓** |
+<p><em>Performance comparison highlighting the efficiency gains of STORM on ImageNet-1K.</em></p>
 
 </div>
 
 <div align="justify">
 
-Our experiments demonstrate that STORM achieves significant speed-ups (e.g., 2.3x on ImageNet-1K) compared to standard VSSM implementations, with minimal degradation in accuracy. Qualitative results also show that the preserved tokens effectively capture key semantic information.
 
-<!-- 在此处插入展示性能提升或可视化结果的图片 -->
-![Performance Comparison](assets/performance_comparison.png "Speed vs. Accuracy")
-![Visualization](assets/token_visualization.png "Selected Tokens Visualization")
+![Performance Comparison: Accuracy vs. Reduction Ratio for EViT and STORM (EViT)](assets/EViT.png "Reduction Ratio vs. Accuracy & Throughput")
+
+**Figure 1:** Accuracy and throughput comparison between EViT and STORM (EViT) under different reduction ratios. STORM maintains high accuracy while significantly improving inference speed.
+
+![Performance Comparison: Accuracy vs. Reduction Ratio for ToMe and STORM (ToMe)](assets/ToMe.png "Speed vs. Accuracy & Throughput")
+
+**Figure 2:** Accuracy and throughput comparison between ToMe and STORM (ToMe) across varying reduction ratios. STORM achieves better performance retention with higher throughput.
 
 </div>
+
+---
+### Visualization
+
+
+
+![Visualization](assets/Visualization.png "Token Reduciton Visualization")
+
+**Figure 3:** Visualization of token reduction at varying compression ratios. ToMe produces fragmented and spatially inconsistent representations. Structured spatial reduction (without windowing) restores layout regularity but sacrifices fine-grained details. In contrast, the full STORM framework consistently preserves both structural integrity and semantic coherence across all pruning levels.
+
+![Visualization](assets/Semantic_Grouping.png "Semantic Grouping Visualization(95% Pruned)")
+
+**Figure 3:** Even with a 95% reduction ratio, STORM avoids the "checkerboard noise" of conventional methods. By constraining reduction within local windows and preserving grid topology, patches are grouped into semantically coherent objects, which is vital for the SS2D mechanism to maintain faithful inference.
 
 ---
 
