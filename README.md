@@ -18,11 +18,12 @@
 ---
 
 ### 📋 Table of Contents
-- [Abstract](#abstract)
-- [Methodology](#methodology)
-- [Results](#results)
-- [Usage](#usage) <!-- 如果包含代码，这是标准部分 -->
-- [Citation](#citation)
+- [Abstract](#-abstract)
+- [Methodology](#-methodology)
+- [Results](#-results)
+- [Visualization](#-visualization)
+- [Usage](#-usage)
+- [Citation](#-citation)
 
 ---
 
@@ -63,34 +64,39 @@ For detailed algorithmic descriptions and ablation studies, please refer to Sect
 
 ### 📊 Classification on ImageNet-1K
 
-<div align="center">
 
 | Method              | GFlops   | Params (M) | Acc1 (%) | Δ (%)    |
 |---------------------|----------|------------|----------|----------|
-| **VMamba-B (Base)** |          |            |          |          |
-| VMamba-B            | 15.36    | 89         | 83.9     | -        |
+| **VMamba-B**            | 15.36    | 89         | 83.9     | -        |
 | +EViT               | 9.33     | 89         | 24.4     | 59.5↓    |
 | +ToMe               | 9.69     | 89         | 35.7     | 48.2↓    |
 | **+STORM (EViT)**   | **9.33** | **89**     | **82.2** | **1.7↓** |
 | **+STORM (ToMe)**   | **9.33** | **89**     | **82.6** | **1.3↓** |
-| **PlainMamba-L3**   |          |            |          |          |
-| PlainMamba-L3       | 14.44    | 51         | 82.2     | -        |
+
+---
+
+| Method              | GFlops   | Params (M) | Acc1 (%) | Δ (%)    |
+|---------------------|----------|------------|----------|----------|
+| **PlainMamba-L3**       | 14.44    | 51         | 82.2     | -        |
 | +EViT               | 9.74     | 51         | 75.2     | 7.0↓     |
 | +ToMe               | 9.75     | 51         | 76.1     | 6.1↓     |
 | **+STORM (EViT)**   | **9.33** | **51**     | **82.2** | **1.7↓** |
 | **+STORM (ToMe)**   | **9.74** | **51**     | **80.9** | **1.3↓** |
-| **LocalMamba-S**    |          |            |          |          |
-| LocalMamba-S        | 11.37    | 50         | 83.7     | -        |
+
+---
+
+| Method              | GFlops   | Params (M) | Acc1 (%) | Δ (%)    |
+|---------------------|----------|------------|----------|----------|
+| **LocalMamba-S**        | 11.37    | 50         | 83.7     | -        |
 | +EViT               | 6.70     | 50         | 19.3     | 64.4↓    |
 | +ToMe               | 6.96     | 50         | 28.7     | 55.0↓    |
 | **+STORM (EViT)**   | **6.70** | **50**     | **78.5** | **5.2↓** |
 | **+STORM (ToMe)**   | **6.70** | **50**      | **79.6** | **4.1↓** |
-<p><em>Performance comparison highlighting the efficiency gains of STORM on ImageNet-1K.</em></p>
 
-</div>
+<p><em><strong>Table 1: </strong> Performance comparison highlighting the efficiency gains of STORM on ImageNet-1K.</em></p>
+
 
 <div align="justify">
-
 
 ![Performance Comparison: Accuracy vs. Reduction Ratio for EViT and STORM (EViT)](assets/EViT.png "Reduction Ratio vs. Accuracy & Throughput")
 
@@ -103,9 +109,7 @@ For detailed algorithmic descriptions and ablation studies, please refer to Sect
 </div>
 
 ---
-### Visualization
-
-
+### 🖼️ Visualization
 
 ![Visualization](assets/Visualization.png "Token Reduciton Visualization")
 
@@ -113,32 +117,42 @@ For detailed algorithmic descriptions and ablation studies, please refer to Sect
 
 ![Visualization](assets/Semantic_Grouping.png "Semantic Grouping Visualization(95% Pruned)")
 
-**Figure 3:** Even with a 95% reduction ratio, STORM avoids the "checkerboard noise" of conventional methods. By constraining reduction within local windows and preserving grid topology, patches are grouped into semantically coherent objects, which is vital for the SS2D mechanism to maintain faithful inference.
+**Figure 3:** Visualization of extreme token reduction with STORM (ToMe). The figure illustrates the merging results on ImageNet-1K validation images when tokens are aggressively pruned from 26×26 to 6×6 (approximately 95% token reduction). Patches sharing the
+same color are merged into a single token, demonstrating how STORM preserves structural groups even under extreme compression.
 
 ---
 
 ### 🚀 Usage
 
-<!-- 如果您的项目包含代码，请在此处详细说明如何安装依赖、准备数据集、运行训练或推理脚本。 -->
-
 #### Environment Setup
 
 ```bash
-# Example commands to set up the environment
-conda create -n storm python=3.9
-conda activate storm
-pip install torch torchvision
-# ... add other dependencies
+# Create and activate the environment
+conda create -n vmamba python=3.10 -y
+conda activate vmamba
+
+# Install core dependencies
+pip install torch==2.2 torchvision torchaudio triton pytest chardet yacs termcolor fvcore seaborn packaging ninja einops 
+pip install numpy==1.24.4 timm==0.4.12
+
+# Install Mamba SSM (Pre-compiled optimized kernels)
+pip install https://github.com/state-spaces/mamba/releases/download/v2.2.4/mamba_ssm-2.2.4+cu12torch2.2cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
 ```
 
-#### Training & Evaluation
+#### Run Model Classification Inference
 
 ```bash
-# Example command to run training
-python train.py --config configs/storm_config.yaml
+# Navigate to the project root
+cd /project/root
 
-# Example command to run evaluation
-python eval.py --model_path path/to/your/model.pth --data_dir /path/to/dataset
+# Execute inference script
+./run.sh \
+  --data-path /path/to/data \
+  --cfg /path/to/config \
+  --pretrained /path/to/checkpoint \
+  --batch-size 128 \
+  --output /path/to/output \
+  --throughput
 ```
 
 ---
