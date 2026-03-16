@@ -13,26 +13,16 @@ This is the official implementation of the paper: [Spatial-Aware Reduction Frame
 
 
 ## 📋 Table of Contents
-- [Abstract](#-abstract)
-- [Methodology](#-methodology)
+- [Overview](#-overview)
 - [Results](#-results-on-imagenet-1k)
 - [Visualization](#-visualization)
 - [Installation](#-installation)
 - [Usage](#-usage)
+- [Acknowledgements](#-acknowledgements)
 - [Citation](#-citation)
 
 
-## 🔍 Abstract
-
-<div align="justify">
-
-Mamba demonstrates strong efficiency in modeling long visual sequences. However, when token reduction is applied to structurally enhanced Mamba variants, these models exhibit a severe performance collapse. We attribute this degradation to the spatially agnostic nature of existing reduction methods, which violate the two-dimensional structural premise required by the selective scanning mechanism. 
-
-In this work, we propose STORM, a spatial-aware token reduction framework designed to maintain structural integrity throughout the compression process. STORM reformulates reduction into a structured operation on spatial units, enforcing localized constraints to maintain both grid topology and neighborhood coherence. As a plug-and-play module, STORM equips existing reduction pipelines with explicit spatial awareness without any training. Empirical results demonstrate that STORM achieves state-of-the-art pruning accuracy across diverse vision Mamba backbones under training-free settings. Notably, STORM delivers a substantial accuracy recovery on VMamba, outperforming prior methods by up to 63.3% in top-1 accuracy. Meanwhile, STORM incurs only a 1.0% accuracy drop on PlainMamba, achieving performance comparable to ViT.
-
-</div>
-
-## 🧠 Methodology
+## 🔍 Overview
 
 <div align="center">
 
@@ -40,7 +30,13 @@ In this work, we propose STORM, a spatial-aware token reduction framework design
 <p><em>Overview of STORM. The framework performs spatially structured token reduction in two decoupled stages: row-wise and then column-wise reduction within localized windows, preserving the 2D grid layout required for selective scanning.</em></p>
 
 </div>
+The STORM framework proposes a lightweight solution that refactors token reduction into a spatially structured process, as illustrated in Figure 3 above. The framework comprises three core features:
 
+1.  **Dimensional Decoupling:** Instead of globally flattening tokens, STORM refactors the reduction process into two successive stages—row-wise and column-wise. This preserves a regular 2D grid topology, ensuring seamless compatibility with the 2D Selective Scan (SS2D) mechanism in Mamba.
+2.  **Localized Window:** To prevent semantic distortion from long-range interference, STORM partitions the feature map into non-overlapping local windows. Reduction operations are strictly confined within these contiguous neighborhoods to protect fine-grained details and local coherence.
+3.  **Faithful Scanning Restoration:** By maintaining a structured layout, STORM ensures that the causal propagation paths of the four-way scanning are not disrupted. This allows the model to retain accurate spatial awareness and performance during inference without requiring any re-training.
+
+For detailed algorithmic descriptions and ablation studies, please refer to Section 3 of our [paper](link-to-paper).
 <!-- <div align="justify">
 
 The STORM framework proposes a lightweight solution that refactors token reduction into a spatially structured process, as illustrated in Figure 3 above. The framework comprises three core features:
@@ -53,6 +49,7 @@ For detailed algorithmic descriptions and ablation studies, please refer to Sect
 
 </div> -->
 
+> **Abstract:** Mamba demonstrates strong efficiency in modeling long visual sequences. However, when token reduction is applied to structurally enhanced Mamba variants, these models exhibit a severe performance collapse. We attribute this degradation to the spatially agnostic nature of existing reduction methods, which violate the two-dimensional structural premise required by the selective scanning mechanism. In this work, we propose STORM, a spatial-aware token reduction framework designed to maintain structural integrity throughout the compression process. STORM reformulates reduction into a structured operation on spatial units, enforcing localized constraints to maintain both grid topology and neighborhood coherence. As a plug-and-play module, STORM equips existing reduction pipelines with explicit spatial awareness without any training. Empirical results demonstrate that STORM achieves state-of-the-art pruning accuracy across diverse vision Mamba backbones under training-free settings. Notably, STORM delivers a substantial accuracy recovery on VMamba, outperforming prior methods by up to 63.3% in top-1 accuracy. Meanwhile, STORM incurs only a 1.0% accuracy drop on PlainMamba, achieving performance comparable to ViT.
 
 ## 📊 Results on ImageNet-1K
 
@@ -191,6 +188,12 @@ cd plainmamba/
   --gpus 1 \                                             # Number of GPUs
   --port 29503                                           # Distributed port
 ```
+
+## 🤝 Acknowledgements
+
+The repo is partly built based on [VMamba](https://github.com/MzeroMiko/VMamba) 🐍, [LocalMamba](https://github.com/hunto/LocalMamba) 📍, and [PlainMamba](https://github.com/ChenhongyiYang/PlainMamba) 🧊. We are grateful for their generous contributions to open source. 🌟
+
+
 
 ## 📝 Citation
 
