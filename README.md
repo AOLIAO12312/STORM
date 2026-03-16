@@ -109,10 +109,24 @@ For detailed algorithmic descriptions and ablation studies, please refer to Sect
 **Figure 3:** Visualization of extreme token reduction with STORM (ToMe). The figure illustrates the merging results on ImageNet-1K validation images when tokens are aggressively pruned from 26×26 to 6×6 (approximately 95% token reduction). Patches sharing the
 same color are merged into a single token, demonstrating how STORM preserves structural groups even under extreme compression.
 
+## 🛠 Installation & Quick Start
 
-## 🚀 Usage
+First, clone the repository to your local machine:
 
-### Environment Setup
+```bash
+git clone https://github.com/AOLIAO12312/STORM
+cd STORM
+```
+
+---
+
+### 🐍 VMamba: Visual State Space Model
+
+VMamba utilizes a State Space Model specifically designed for vision tasks. It is highly recommended to use a **CUDA 12** compatible environment.
+
+#### 1. Environment Setup
+
+Create an isolated virtual environment and install the core dependencies:
 
 ```bash
 # Create and activate the environment
@@ -125,13 +139,16 @@ pip install numpy==1.24.4 timm==0.4.12
 
 # Install Mamba SSM (Pre-compiled optimized kernels)
 pip install https://github.com/state-spaces/mamba/releases/download/v2.2.4/mamba_ssm-2.2.4+cu12torch2.2cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
+
 ```
 
-### Run Model Classification Inference
+#### 2. Run Classification
+
+Navigate to the project root and execute the inference script:
 
 ```bash
 # Navigate to the project root
-cd /project/root
+cd vmamba/
 
 # Execute inference script
 ./run_vmamba.sh \
@@ -143,6 +160,81 @@ cd /project/root
   --throughput
 ```
 
+---
+
+### 📍 LocalMamba: Localized Scan Strategy
+
+LocalMamba introduces a localized scanning mechanism. Note that this version requires manual compilation of specific operators for optimal performance.
+
+#### 1. Environment Setup
+
+> **Note:** This process involves C++ compilation. Ensure `gcc/g++` and `nvcc` are properly installed in your system.
+
+```bash
+cd localmamba/
+conda create -n localmamba python=3.10 -y
+conda activate localmamba
+
+pip install torch==2.1 torchvision torchaudio
+cd causual-conv1d && pip install .
+cd ..
+cd mamba-1p1p1 && pip install .
+cd ..
+```
+
+#### 2. Run Classification
+
+```bash
+# Go to the classification dir
+cd classification/
+
+# Execute inference script
+cd localmamba/
+./run_localmamba.sh \
+  --cfg configs/strategies/local_mamba/config.yaml \  # Path to config
+  --model timm_local_vssm_small \                   # Model architecture
+  --resume /path/to/weights.ckpt \                  # Pretrained checkpoint
+  --data-path /path/to/imagenet \                   # Dataset root
+  --gpus 4 \                                        # Number of GPUs
+  --drop-path 0.1 \                                 # Drop path rate
+  --exp local_mamba_eval                            # Experiment name
+```
+
+---
+
+### 🧊 PlainMamba: Simplified Architecture
+
+PlainMamba features a simplified architecture with specific compatibility requirements (best suited for **PyTorch 1.13.1**).
+
+#### 1. Environment Setup
+
+If you encounter CUDA linking errors, try installing `cudatoolkit-dev`.
+
+```bash
+cd plainmamba/
+conda create -n plainmamba python=3.10 -y
+source activate plainmamba
+pip install torch==1.13.1+cu116 torchvision==0.14.1+cu116 -f https://download.pytorch.org/whl/torch_stable.html --no-cache
+conda install -c conda-forge cudatoolkit-dev # Optional, only needed when facing cuda errors
+pip install -U openmim
+mim install mmcv-full
+pip install mamba-ssm
+pip install mlflow fvcore timm lmdb
+pip install -e .
+```
+
+#### 2. Run Classification
+
+```bash
+# Execute inference script
+# Full argument usage example:
+cd plainmamba/
+./run_plainmamba.sh \
+  --cfg plain_mamba_configs/plain_mamba_l2_in1k_300e.py \ # Path to config
+  --checkpoint /path/to/l2.pth \                         # Pretrained weights
+  --gpus 1 \                                             # Number of GPUs
+  --port 29503                                           # Distributed port
+```
 
 ## 📝 Citation
 
