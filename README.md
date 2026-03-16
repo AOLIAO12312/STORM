@@ -1,5 +1,5 @@
 
-# STORM: Spatial-Aware Token Reduction Framework for VSSM
+# 🧠 STORM: Spatial-Aware Reduction Framework: Towards  Efficient and Faithful  Visual State Space Models
 <p>
   <a href="http://arxiv.org/abs/2512.01485">
     <img src="https://img.shields.io/badge/arXiv-2512.01485-b31b1b.svg?style=flat" alt="arXiv">
