@@ -1,23 +1,18 @@
 
-<div align="center">
-<h1>STORM </h1>
-<h3>STORM: Spatial-Aware Token Reduction Framework for VSSM</h3>
+# STORM: Spatial-Aware Token Reduction Framework for VSSM
+<p>
+  <a href="http://arxiv.org/abs/2512.01485">
+    <img src="https://img.shields.io/badge/arXiv-2512.01485-b31b1b.svg?style=flat" alt="arXiv">
+  </a>
+<a href="https://multi-path-collaborative-reasoning.github.io/">
+    <img src="https://img.shields.io/badge/Website-Paper-orange.svg?style=flat" alt="website">
+  </a>
+</p>
 
-[//]: # ()
-[//]: # ([Yue Liu]&#40;https://github.com/MzeroMiko&#41;<sup>1</sup>,[Yunjie Tian]&#40;https://sunsmarterjie.github.io/&#41;<sup>1</sup>,[Yuzhong Zhao]&#40;https://scholar.google.com.hk/citations?user=tStQNm4AAAAJ&hl=zh-CN&oi=ao&#41;<sup>1</sup>, [Hongtian Yu]&#40;https://github.com/yuhongtian17&#41;<sup>1</sup>, [Lingxi Xie]&#40;https://scholar.google.com.hk/citations?user=EEMm7hwAAAAJ&hl=zh-CN&oi=ao&#41;<sup>2</sup>, [Yaowei Wang]&#40;https://scholar.google.com.hk/citations?user=o_DllmIAAAAJ&hl=zh-CN&oi=ao&#41;<sup>3</sup>, [Qixiang Ye]&#40;https://scholar.google.com.hk/citations?user=tjEfgsEAAAAJ&hl=zh-CN&oi=ao&#41;<sup>1</sup>, [Yunfan Liu]&#40;https://scholar.google.com.hk/citations?user=YPL33G0AAAAJ&hl=zh-CN&oi=ao&#41;<sup>1</sup>)
+This is the official implementation of the paper: [Spatial-Aware Reduction Framework: Towards  Efficient and Faithful  Visual State Space Models.](http://arxiv.org/abs/2512.01485)
 
-[//]: # ()
-[//]: # (<sup>1</sup>  University of Chinese Academy of Sciences, <sup>2</sup>  HUAWEI Inc.,  <sup>3</sup> PengCheng Lab.)
 
-**Paper:** ([arXiv]()) 
-<br>
-**Project Page:** [https://spatial-aware-reduction-framework.github.io/](https://spatial-aware-reduction-framework.github.io/)
-
-</div>
-
----
-
-### 📋 Table of Contents
+## 📋 Table of Contents
 - [Abstract](#-abstract)
 - [Methodology](#-methodology)
 - [Results](#-results)
@@ -25,9 +20,8 @@
 - [Usage](#-usage)
 - [Citation](#-citation)
 
----
 
-### 🔍 Abstract
+## 🔍 Abstract
 
 <div align="justify">
 
@@ -37,9 +31,8 @@ In this work, we propose STORM, a spatial-aware token reduction framework design
 
 </div>
 
----
 
-### 🧠 Methodology
+## 🧠 Methodology
 
 <div align="center">
 
@@ -48,7 +41,7 @@ In this work, we propose STORM, a spatial-aware token reduction framework design
 
 </div>
 
-<div align="justify">
+<!-- <div align="justify">
 
 The STORM framework proposes a lightweight solution that refactors token reduction into a spatially structured process, as illustrated in Figure 3 above. The framework comprises three core features:
 
@@ -58,11 +51,10 @@ The STORM framework proposes a lightweight solution that refactors token reducti
 
 For detailed algorithmic descriptions and ablation studies, please refer to Section 3 of our [paper](link-to-paper).
 
-</div>
+</div> -->
 
----
 
-### 📊 Classification on ImageNet-1K
+## 📊 Classification on ImageNet-1K
 
 
 | Method              | GFlops   | Params (M) | Acc1 (%) | Δ (%)    |
@@ -73,7 +65,6 @@ For detailed algorithmic descriptions and ablation studies, please refer to Sect
 | **+STORM (EViT)**   | **9.33** | **89**     | **82.2** | **1.7↓** |
 | **+STORM (ToMe)**   | **9.33** | **89**     | **82.6** | **1.3↓** |
 
----
 
 | Method              | GFlops   | Params (M) | Acc1 (%) | Δ (%)    |
 |---------------------|----------|------------|----------|----------|
@@ -83,7 +74,6 @@ For detailed algorithmic descriptions and ablation studies, please refer to Sect
 | **+STORM (EViT)**   | **9.33** | **51**     | **82.2** | **1.7↓** |
 | **+STORM (ToMe)**   | **9.74** | **51**     | **80.9** | **1.3↓** |
 
----
 
 | Method              | GFlops   | Params (M) | Acc1 (%) | Δ (%)    |
 |---------------------|----------|------------|----------|----------|
@@ -108,8 +98,7 @@ For detailed algorithmic descriptions and ablation studies, please refer to Sect
 
 </div>
 
----
-### 🖼️ Visualization
+## 🖼️ Visualization
 
 ![Visualization](assets/Visualization.png "Token Reduciton Visualization")
 
@@ -120,11 +109,10 @@ For detailed algorithmic descriptions and ablation studies, please refer to Sect
 **Figure 3:** Visualization of extreme token reduction with STORM (ToMe). The figure illustrates the merging results on ImageNet-1K validation images when tokens are aggressively pruned from 26×26 to 6×6 (approximately 95% token reduction). Patches sharing the
 same color are merged into a single token, demonstrating how STORM preserves structural groups even under extreme compression.
 
----
 
-### 🚀 Usage
+## 🚀 Usage
 
-#### Environment Setup
+### Environment Setup
 
 ```bash
 # Create and activate the environment
@@ -139,7 +127,7 @@ pip install numpy==1.24.4 timm==0.4.12
 pip install https://github.com/state-spaces/mamba/releases/download/v2.2.4/mamba_ssm-2.2.4+cu12torch2.2cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
 ```
 
-#### Run Model Classification Inference
+### Run Model Classification Inference
 
 ```bash
 # Navigate to the project root
@@ -155,9 +143,8 @@ cd /project/root
   --throughput
 ```
 
----
 
-### 📝 Citation
+## 📝 Citation
 
 If you find our work useful in your research, please consider citing our paper:
 
