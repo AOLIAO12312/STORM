@@ -18,9 +18,8 @@ This is the official implementation of the paper: [Spatial-Aware Reduction Frame
 - [Visualization](#-visualization)
 - [Installation](#-installation)
 - [Usage](#-usage)
-- [Acknowledgements](#-acknowledgements)
 - [Citation](#-citation)
-
+- [Acknowledgements](#-acknowledgements)
 
 ## 🔍 Overview
 
