@@ -134,7 +134,7 @@ pip install https://github.com/state-spaces/mamba/releases/download/v2.2.4/mamba
 cd /project/root
 
 # Execute inference script
-./run.sh \
+./run_vmamba.sh \
   --data-path /path/to/data \
   --cfg /path/to/config \
   --pretrained /path/to/checkpoint \

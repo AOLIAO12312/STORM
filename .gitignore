@@ -18,21 +18,21 @@ ckpts
 log
 ckpt
 *.JPEG
-classification/models/vis
-classification/models/visualization
+vmamba/classification/models/vis
+vmamba/classification/models/visualization
 
-analyze/show
-analyze/features
-cross_selective_scan
-classification/models/pscan.py
-classification/configs/heat
-classification/models/heat
-classification/models/heat.py
-classification/models/vim.py
-classification/models/pscan.py
+vmamba/analyze/show
+vmamba/analyze/features
+vmamba/cross_selective_scan
+vmamba/classification/models/pscan.py
+vmamba/classification/configs/heat
+vmamba/classification/models/heat
+vmamba/classification/models/heat.py
+vmamba/classification/models/vim.py
+vmamba/classification/models/pscan.py
 
-detection/data
-segmentation/data
+vmamba/detection/data
+vmamba/segmentation/data
 
 kernels/selective_scan/1.log
 kernels/csmcuda
