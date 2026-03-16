@@ -15,8 +15,9 @@ This is the official implementation of the paper: [Spatial-Aware Reduction Frame
 ## 📋 Table of Contents
 - [Abstract](#-abstract)
 - [Methodology](#-methodology)
-- [Results](#-results)
+- [Results](#-results-on-imagenet-1k)
 - [Visualization](#-visualization)
+- [Installation](#-installation)
 - [Usage](#-usage)
 - [Citation](#-citation)
 
@@ -30,7 +31,6 @@ Mamba demonstrates strong efficiency in modeling long visual sequences. However,
 In this work, we propose STORM, a spatial-aware token reduction framework designed to maintain structural integrity throughout the compression process. STORM reformulates reduction into a structured operation on spatial units, enforcing localized constraints to maintain both grid topology and neighborhood coherence. As a plug-and-play module, STORM equips existing reduction pipelines with explicit spatial awareness without any training. Empirical results demonstrate that STORM achieves state-of-the-art pruning accuracy across diverse vision Mamba backbones under training-free settings. Notably, STORM delivers a substantial accuracy recovery on VMamba, outperforming prior methods by up to 63.3% in top-1 accuracy. Meanwhile, STORM incurs only a 1.0% accuracy drop on PlainMamba, achieving performance comparable to ViT.
 
 </div>
-
 
 ## 🧠 Methodology
 
@@ -54,37 +54,7 @@ For detailed algorithmic descriptions and ablation studies, please refer to Sect
 </div> -->
 
 
-## 📊 Classification on ImageNet-1K
-
-
-| Method              | GFlops   | Params (M) | Acc1 (%) | Δ (%)    |
-|---------------------|----------|------------|----------|----------|
-| **VMamba-B**            | 15.36    | 89         | 83.9     | -        |
-| +EViT               | 9.33     | 89         | 24.4     | 59.5↓    |
-| +ToMe               | 9.69     | 89         | 35.7     | 48.2↓    |
-| **+STORM (EViT)**   | **9.33** | **89**     | **82.2** | **1.7↓** |
-| **+STORM (ToMe)**   | **9.33** | **89**     | **82.6** | **1.3↓** |
-
-
-| Method              | GFlops   | Params (M) | Acc1 (%) | Δ (%)    |
-|---------------------|----------|------------|----------|----------|
-| **PlainMamba-L3**       | 14.44    | 51         | 82.2     | -        |
-| +EViT               | 9.74     | 51         | 75.2     | 7.0↓     |
-| +ToMe               | 9.75     | 51         | 76.1     | 6.1↓     |
-| **+STORM (EViT)**   | **9.33** | **51**     | **82.2** | **1.7↓** |
-| **+STORM (ToMe)**   | **9.74** | **51**     | **80.9** | **1.3↓** |
-
-
-| Method              | GFlops   | Params (M) | Acc1 (%) | Δ (%)    |
-|---------------------|----------|------------|----------|----------|
-| **LocalMamba-S**        | 11.37    | 50         | 83.7     | -        |
-| +EViT               | 6.70     | 50         | 19.3     | 64.4↓    |
-| +ToMe               | 6.96     | 50         | 28.7     | 55.0↓    |
-| **+STORM (EViT)**   | **6.70** | **50**     | **78.5** | **5.2↓** |
-| **+STORM (ToMe)**   | **6.70** | **50**      | **79.6** | **4.1↓** |
-
-<p><em><strong>Table 1: </strong> Performance comparison highlighting the efficiency gains of STORM on ImageNet-1K.</em></p>
-
+## 📊 Results on ImageNet-1K
 
 <div align="justify">
 
@@ -109,7 +79,10 @@ For detailed algorithmic descriptions and ablation studies, please refer to Sect
 **Figure 3:** Visualization of extreme token reduction with STORM (ToMe). The figure illustrates the merging results on ImageNet-1K validation images when tokens are aggressively pruned from 26×26 to 6×6 (approximately 95% token reduction). Patches sharing the
 same color are merged into a single token, demonstrating how STORM preserves structural groups even under extreme compression.
 
-## 🛠 Installation & Quick Start
+Here is the restructured README in its original English version, divided into **Installation** and **Usage** sections:
+
+
+## 🛠 Installation
 
 First, clone the repository to your local machine:
 
@@ -118,15 +91,9 @@ git clone https://github.com/AOLIAO12312/STORM
 cd STORM
 ```
 
----
-
 ### 🐍 VMamba: Visual State Space Model
 
-VMamba utilizes a State Space Model specifically designed for vision tasks. It is highly recommended to use a **CUDA 12** compatible environment.
-
-#### 1. Environment Setup
-
-Create an isolated virtual environment and install the core dependencies:
+It is highly recommended to use a **CUDA 12** compatible environment.
 
 ```bash
 # Create and activate the environment
@@ -139,10 +106,44 @@ pip install numpy==1.24.4 timm==0.4.12
 
 # Install Mamba SSM (Pre-compiled optimized kernels)
 pip install https://github.com/state-spaces/mamba/releases/download/v2.2.4/mamba_ssm-2.2.4+cu12torch2.2cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
-
 ```
 
-#### 2. Run Classification
+### 📍 LocalMamba: Localized Scan Strategy
+
+```bash
+cd localmamba/
+conda create -n localmamba python=3.10 -y
+conda activate localmamba
+
+pip install torch==2.1 torchvision torchaudio
+cd causual-conv1d && pip install .
+cd ..
+cd mamba-1p1p1 && pip install .
+cd ..
+```
+
+### 🧊 PlainMamba: Simplified Architecture
+
+Best suited for **PyTorch 1.13.1**. If you encounter CUDA linking errors, try installing `cudatoolkit-dev`.
+
+```bash
+cd plainmamba/
+conda create -n plainmamba python=3.10 -y
+source activate plainmamba
+pip install torch==1.13.1+cu116 torchvision==0.14.1+cu116 -f https://download.pytorch.org/whl/torch_stable.html --no-cache
+conda install -c conda-forge cudatoolkit-dev # Optional, only needed when facing cuda errors
+pip install -U openmim
+mim install mmcv-full
+pip install mamba-ssm
+pip install mlflow fvcore timm lmdb
+pip install -e .
+```
+
+---
+
+## 🚀 Usage
+
+### 🐍 VMamba
 
 Navigate to the project root and execute the inference script:
 
@@ -160,36 +161,15 @@ cd vmamba/
   --throughput
 ```
 
----
+### 📍 LocalMamba
 
-### 📍 LocalMamba: Localized Scan Strategy
-
-LocalMamba introduces a localized scanning mechanism. Note that this version requires manual compilation of specific operators for optimal performance.
-
-#### 1. Environment Setup
-
-> **Note:** This process involves C++ compilation. Ensure `gcc/g++` and `nvcc` are properly installed in your system.
-
-```bash
-cd localmamba/
-conda create -n localmamba python=3.10 -y
-conda activate localmamba
-
-pip install torch==2.1 torchvision torchaudio
-cd causual-conv1d && pip install .
-cd ..
-cd mamba-1p1p1 && pip install .
-cd ..
-```
-
-#### 2. Run Classification
+Navigate to the classification directory and execute the script:
 
 ```bash
 # Go to the classification dir
-cd classification/
+cd localmamba/classification/
 
 # Execute inference script
-cd localmamba/
 ./run_localmamba.sh \
   --cfg configs/strategies/local_mamba/config.yaml \  # Path to config
   --model timm_local_vssm_small \                   # Model architecture
@@ -200,37 +180,16 @@ cd localmamba/
   --exp local_mamba_eval                            # Experiment name
 ```
 
----
+### 🧊 PlainMamba
 
-### 🧊 PlainMamba: Simplified Architecture
-
-PlainMamba features a simplified architecture with specific compatibility requirements (best suited for **PyTorch 1.13.1**).
-
-#### 1. Environment Setup
-
-If you encounter CUDA linking errors, try installing `cudatoolkit-dev`.
+Execute the inference script using the following example:
 
 ```bash
 cd plainmamba/
-conda create -n plainmamba python=3.10 -y
-source activate plainmamba
-pip install torch==1.13.1+cu116 torchvision==0.14.1+cu116 -f https://download.pytorch.org/whl/torch_stable.html --no-cache
-conda install -c conda-forge cudatoolkit-dev # Optional, only needed when facing cuda errors
-pip install -U openmim
-mim install mmcv-full
-pip install mamba-ssm
-pip install mlflow fvcore timm lmdb
-pip install -e .
-```
 
-#### 2. Run Classification
-
-```bash
 # Execute inference script
-# Full argument usage example:
-cd plainmamba/
 ./run_plainmamba.sh \
-  --cfg plain_mamba_configs/plain_mamba_l2_in1k_300e.py \ # Path to config
+  --cfg plain_mamba_configs/plain_mamba_l2_in1k_300e.py \  # Path to config
   --checkpoint /path/to/l2.pth \                         # Pretrained weights
   --gpus 1 \                                             # Number of GPUs
   --port 29503                                           # Distributed port
