@@ -188,9 +188,6 @@ cd plainmamba/
   --port 29503                                           # Distributed port
 ```
 
-## 🤝 Acknowledgements
-
-The repo is partly built based on [VMamba](https://github.com/MzeroMiko/VMamba) 🐍, [LocalMamba](https://github.com/hunto/LocalMamba) 📍, and [PlainMamba](https://github.com/ChenhongyiYang/PlainMamba) 🧊. We are grateful for their generous contributions to open source. 🌟
 
 
 
@@ -206,3 +203,8 @@ If you find our work useful in your research, please consider citing our paper:
   year={2025}
 }
 ```
+
+
+## 🤝 Acknowledgements
+
+The repo is partly built based on [VMamba](https://github.com/MzeroMiko/VMamba) 🐍, [LocalMamba](https://github.com/hunto/LocalMamba) 📍, and [PlainMamba](https://github.com/ChenhongyiYang/PlainMamba) 🧊. We are grateful for their generous contributions to open source. 🌟
