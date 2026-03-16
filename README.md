@@ -1,15 +1,15 @@
 
 # 🌪️ STORM: Spatial-Aware Reduction Framework: Towards  Efficient and Faithful  Visual State Space Models
 <p>
-  <a href="http://arxiv.org/abs/2512.01485">
+  <a href="_">
     <img src="https://img.shields.io/badge/arXiv-2512.01485-b31b1b.svg?style=flat" alt="arXiv">
   </a>
-<a href="https://multi-path-collaborative-reasoning.github.io/">
+<a href="https://spatial-aware-reduction-framework.github.io/">
     <img src="https://img.shields.io/badge/Website-Paper-orange.svg?style=flat" alt="website">
   </a>
 </p>
 
-This is the official implementation of the paper: [Spatial-Aware Reduction Framework: Towards  Efficient and Faithful  Visual State Space Models.](http://arxiv.org/abs/2512.01485)
+This is the official implementation of the paper: [Spatial-Aware Reduction Framework: Towards  Efficient and Faithful  Visual State Space Models.](_)
 
 
 ## 📋 Table of Contents
