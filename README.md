@@ -79,9 +79,6 @@ For detailed algorithmic descriptions and ablation studies, please refer to Sect
 **Figure 3:** Visualization of extreme token reduction with STORM (ToMe). The figure illustrates the merging results on ImageNet-1K validation images when tokens are aggressively pruned from 26×26 to 6×6 (approximately 95% token reduction). Patches sharing the
 same color are merged into a single token, demonstrating how STORM preserves structural groups even under extreme compression.
 
-Here is the restructured README in its original English version, divided into **Installation** and **Usage** sections:
-
-
 ## 🛠 Installation
 
 First, clone the repository to your local machine:
