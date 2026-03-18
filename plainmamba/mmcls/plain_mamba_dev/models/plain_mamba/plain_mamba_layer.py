@@ -324,17 +324,17 @@ class PlainMamba2D(nn.Module):
             out = out * self.gamma
         return out
 
-from .RandomPrune import RandomPrune
-from .InterpolatePrune import InterpolatePrune
-from .ToMe1D import TokenMerge2Dv4
-from .ToMe2D import ToMe2D
-from .ConvToMe2D import ConvToMe2D
-from .FixedWindowToMe2Dv2 import FixedWindowToMe2Dv2
-from .HSA import HSA
-from .EViT import EViTTokenPruning
-from .EViT2D import EViT2DStructuredPruning
-from .FixedWindowEViT2D import FixedWindowEViT2D
-from .RandomHardPruneFixedWindowToMe2D import RandomHardPruneFixedWindowToMe2D
+from mmcls.plain_mamba_dev.models.plain_mamba.token_reduction.RandomPrune import RandomPrune
+from mmcls.plain_mamba_dev.models.plain_mamba.token_reduction.InterpolatePrune import InterpolatePrune
+from mmcls.plain_mamba_dev.models.plain_mamba.token_reduction.ToMe1D import TokenMerge2Dv4
+from mmcls.plain_mamba_dev.models.plain_mamba.token_reduction.ToMe2D import ToMe2D
+from mmcls.plain_mamba_dev.models.plain_mamba.token_reduction.ConvToMe2D import ConvToMe2D
+from mmcls.plain_mamba_dev.models.plain_mamba.token_reduction.FixedWindowToMe2Dv2 import FixedWindowToMe2Dv2
+from mmcls.plain_mamba_dev.models.plain_mamba.token_reduction.HSA import HSA
+from mmcls.plain_mamba_dev.models.plain_mamba.token_reduction.EViT import EViTTokenPruning
+from mmcls.plain_mamba_dev.models.plain_mamba.token_reduction.EViT2D import EViT2DStructuredPruning
+from mmcls.plain_mamba_dev.models.plain_mamba.token_reduction.FixedWindowEViT2D import FixedWindowEViT2D
+from mmcls.plain_mamba_dev.models.plain_mamba.token_reduction.RandomHardPruneFixedWindowToMe2D import RandomHardPruneFixedWindowToMe2D
 
 class PlainMambaLayer(nn.Module):
     def __init__(
@@ -408,7 +408,7 @@ class PlainMambaLayer(nn.Module):
             22: 9
         }
 
-        self.schedual = schedual_5
+        self.schedual = schedual_1
         self.prune_ratio = 0.1
         self.random_prune = RandomPrune(share_across_batch=True)
         self.interpolate_prune = InterpolatePrune(assume_square=True)
@@ -444,7 +444,7 @@ class PlainMambaLayer(nn.Module):
             if_order=True
         )
 
-        self.method = "none" # none/random/tome/tome2d/interpolate/conv_tome2d/fixed_window_tome2dv2/HSA/EViT/EViT2D/fixed_window_evit2d/randomToMe2D
+        self.method = "fixed_window_tome2dv2" # none/random/tome/tome2d/interpolate/conv_tome2d/fixed_window_tome2dv2/HSA/EViT/EViT2D/fixed_window_evit2d/randomToMe2D
 
     def get_num_prune_for_coco(self, hw_shape):
         H,W = hw_shape
@@ -469,325 +469,103 @@ class PlainMambaLayer(nn.Module):
                 W = math.floor(W * (1 - self.prune_ratio))
         return hw_shape
 
-    # def forward(self, x, hw_shape): # for classification
-    #     B,L,D = x.shape
-    #     hw_shape = self.guess_shape(hw_shape,L) # coco
-    #     H,W = hw_shape
-    #     mixed_x = self.drop_path(self.mamba(self.norm(x), hw_shape)) # [B,L,C]
-    #     # TODO:Insert Pruning/Merging method
-    #     if self.method == "none" or self.method is None:
-    #         pass
-    #     elif self.method == "random":
-    #         L_target = self.schedual.get(self.layer_idx,H*W)
-    #         num_prune = H*W - L_target
-    #         if num_prune > 0:
-    #             prune_fn = self.random_prune(mixed_x, num_prune)
-    #             mixed_x = prune_fn(mixed_x)
-    #             x = prune_fn(x)
-    #             hw_shape = (int(L_target**0.5), int(L_target**0.5))
-    #     elif self.method == "tome":
-    #         # L_target = self.schedual.get(self.layer_idx, H * W)
-    #         # num_prune = H * W - L_target
-    #
-    #         new_hw_shape = self.get_num_prune_for_coco(hw_shape)  # coco
-    #         H_new, W_new = new_hw_shape  # coco
-    #         num_prune = H * W - H_new * W_new
-    #         if num_prune > 0:
-    #             mixed_x, x = self.merger(mixed_x, x, None,num_prune)
-    #             # hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
-    #             hw_shape = new_hw_shape
-    #     elif self.method == "tome2d":
-    #         L_target = self.schedual.get(self.layer_idx, H * W)
-    #         num_prune = H * W - L_target
-    #         if num_prune > 0:
-    #             # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
-    #             H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
-    #
-    #             # [B, L, D] -> [B, D, H, W]
-    #             mixed_x_bchw = mixed_x.transpose(1, 2).reshape(B, D, H, W)
-    #             x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
-    #
-    #             if mixed_x_bchw.shape[-2:] != (H_new, H_new):
-    #                 prune_fn = self.merge2d(
-    #                     x_bchw,
-    #                     num_prune_w=H - H_new,
-    #                     num_prune_h=H - H_new,
-    #                 )
-    #                 mixed_x_bchw = prune_fn(mixed_x_bchw)
-    #                 x_bchw = prune_fn(x_bchw)
-    #
-    #             # [B, D, H_new, H_new] -> [B, L_new, D]
-    #             mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
-    #             x = x_bchw.flatten(2).transpose(1, 2)
-    #             hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
-    #     elif self.method == "interpolate":
-    #         L_target = self.schedual.get(self.layer_idx,H*W)
-    #         num_prune = H*W - L_target
-    #         if num_prune > 0:
-    #             mixed_x = self.interpolate_prune(mixed_x, num_prune)
-    #             x = self.interpolate_prune(x,num_prune)
-    #             hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
-    #     elif self.method == "conv_tome2d":
-    #         L_target = self.schedual.get(self.layer_idx, H * W)
-    #         num_prune = H * W - L_target
-    #         if num_prune > 0:
-    #             # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
-    #             H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
-    #
-    #             # [B, L, D] -> [B, D, H, W]
-    #             mixed_x_bchw = mixed_x.transpose(1, 2).reshape(B, D, H, W)
-    #             x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
-    #
-    #             if mixed_x_bchw.shape[-2:] != (H_new, H_new):
-    #                 prune_fn = self.conv_tome_2d(
-    #                     x_bchw,
-    #                     target_hw=(H_new, H_new)
-    #                 )
-    #                 mixed_x_bchw = prune_fn(mixed_x_bchw)
-    #                 x_bchw = prune_fn(x_bchw)
-    #
-    #             # [B, D, H_new, H_new] -> [B, L_new, D]
-    #             mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
-    #             x = x_bchw.flatten(2).transpose(1, 2)
-    #             hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
-    #     elif self.method == "fixed_window_tome2dv2":
-    #         # L_target = self.schedual.get(self.layer_idx, H * W) # classification
-    #         new_hw_shape = self.get_num_prune_for_coco(hw_shape) # coco
-    #         H_new, W_new = new_hw_shape # coco
-    #         # num_prune = H * W - L_target # classification
-    #         num_prune = H * W - H_new*W_new
-    #         if num_prune > 0:
-    #             # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
-    #             # H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
-    #
-    #             # [B, L, D] -> [B, D, H, W]
-    #             mixed_x_bchw = mixed_x.transpose(1, 2).reshape(B, D, H, W)
-    #             x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
-    #
-    #             if mixed_x_bchw.shape[-2:] != (H_new, W_new):
-    #                 prune_fn = self.fixed_window_tome2dv2(
-    #                     x_bchw,
-    #                     num_prune_w=W - W_new,
-    #                     num_prune_h=H - H_new,
-    #                 )
-    #                 mixed_x_bchw = prune_fn(mixed_x_bchw)
-    #                 x_bchw = prune_fn(x_bchw)
-    #
-    #             # [B, D, H_new, H_new] -> [B, L_new, D]
-    #             mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
-    #             x = x_bchw.flatten(2).transpose(1, 2)
-    #             # hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5)) # classification
-    #             hw_shape = new_hw_shape
-    #     elif self.method == "HSA":
-    #         L_target = self.schedual.get(self.layer_idx, H * W)
-    #         num_prune = H * W - L_target
-    #         if num_prune > 0:
-    #             # [B, L, D] -> [B, D, H, W]
-    #             mixed_x_bchw = mixed_x.transpose(1, 2)
-    #             x_bchw = x.transpose(1, 2)
-    #
-    #             mixed_x_bchw, x_bchw = self.HSA_pruner(mixed_x_bchw, x_bchw,num_prune)
-    #
-    #             mixed_x = mixed_x_bchw.transpose(1, 2)
-    #             x = x_bchw.transpose(1, 2)
-    #             hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
-    #     elif self.method == "EViT":
-    #         # L_target = self.schedual.get(self.layer_idx, H * W)
-    #         # num_prune = H * W - L_target
-    #         new_hw_shape = self.get_num_prune_for_coco(hw_shape)  # coco
-    #         H_new, W_new = new_hw_shape  # coco
-    #         num_prune = H * W - H_new * W_new
-    #         if num_prune > 0:
-    #             # [B, L, D] -> [B, D, H, W]
-    #             mixed_x_bchw = mixed_x.transpose(1, 2)
-    #             x_bchw = x.transpose(1, 2)
-    #
-    #             mixed_x_bchw, x_bchw = self.EViT_pruner(mixed_x_bchw, x_bchw,num_prune)
-    #
-    #             mixed_x = mixed_x_bchw.transpose(1, 2)
-    #             x = x_bchw.transpose(1, 2)
-    #         # hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
-    #         hw_shape = new_hw_shape
-    #     elif self.method == "EViT2D":
-    #         L_target = self.schedual.get(self.layer_idx, H * W)
-    #         num_prune = H * W - L_target
-    #         if num_prune > 0:
-    #             # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
-    #             H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
-    #
-    #             # [B, L, D] -> [B, D, H, W]
-    #             mixed_x_bchw = mixed_x.transpose(1, 2).reshape(B, D, H, W)
-    #             x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
-    #
-    #             if mixed_x_bchw.shape[-2:] != (H_new, H_new):
-    #                 prune_fn = self.EViT2D_pruner(
-    #                     x_bchw,
-    #                     num_prune_w=H - H_new,
-    #                     num_prune_h=H - H_new,
-    #                 )
-    #                 mixed_x_bchw = prune_fn(mixed_x_bchw)
-    #                 x_bchw = prune_fn(x_bchw)
-    #
-    #             # [B, D, H_new, H_new] -> [B, L_new, D]
-    #             mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
-    #             x = x_bchw.flatten(2).transpose(1, 2)
-    #             hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
-    #     elif self.method == "fixed_window_evit2d":
-    #         # L_target = self.schedual.get(self.layer_idx, H * W) # classification
-    #         new_hw_shape = self.get_num_prune_for_coco(hw_shape) # coco
-    #         H_new, W_new = new_hw_shape # coco
-    #         # num_prune = H * W - L_target # classification
-    #         num_prune = H * W - H_new*W_new
-    #         if num_prune > 0:
-    #             # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
-    #             # H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
-    #
-    #             # [B, L, D] -> [B, D, H, W]
-    #             mixed_x_bchw = mixed_x.transpose(1, 2).reshape(B, D, H, W)
-    #             x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
-    #
-    #             if mixed_x_bchw.shape[-2:] != (H_new, W_new):
-    #                 prune_fn = self.fixed_window_evit2d(
-    #                     x_bchw,
-    #                     num_prune_w=W - W_new,
-    #                     num_prune_h=H - H_new,
-    #                 )
-    #                 mixed_x_bchw = prune_fn(mixed_x_bchw)
-    #                 x_bchw = prune_fn(x_bchw)
-    #
-    #             # [B, D, H_new, H_new] -> [B, L_new, D]
-    #             mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
-    #             x = x_bchw.flatten(2).transpose(1, 2)
-    #             # hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5)) # classification
-    #             hw_shape = new_hw_shape
-    #     elif self.method == "randomToMe2D":
-    #         L_target = self.schedual.get(self.layer_idx, H * W)
-    #         num_prune = H * W - L_target
-    #         if num_prune > 0:
-    #             # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
-    #             H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
-    #
-    #             # [B, L, D] -> [B, D, H, W]
-    #             mixed_x_bchw = mixed_x.transpose(1, 2).reshape(B, D, H, W)
-    #             x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
-    #
-    #             if mixed_x_bchw.shape[-2:] != (H_new, H_new):
-    #                 prune_fn = self.RandomHardPruneSTORM_pruner(
-    #                     x_bchw,
-    #                     num_prune_w=H - H_new,
-    #                     num_prune_h=H - H_new,
-    #                 )
-    #                 mixed_x_bchw = prune_fn(mixed_x_bchw)
-    #                 x_bchw = prune_fn(x_bchw)
-    #
-    #             # [B, D, H_new, H_new] -> [B, L_new, D]
-    #             mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
-    #             x = x_bchw.flatten(2).transpose(1, 2)
-    #             hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
-    #     mixed_x = mixed_x + x
-    #     if self.with_dwconv:
-    #         b, l, c = mixed_x.shape
-    #         h, w = hw_shape
-    #         mixed_x = mixed_x.reshape(b, h, w, c).permute(0, 3, 1, 2)
-    #         mixed_x = self.dw(mixed_x)
-    #         mixed_x = mixed_x.reshape(b, c, h * w).permute(0, 2, 1)
-    #     return mixed_x
-
-    def forward(self, x, hw_shape): # for coco
+    def forward(self, x, hw_shape): # for classification
         B,L,D = x.shape
-        hw_shape = self.guess_shape(hw_shape,L) # coco
+        # hw_shape = self.guess_shape(hw_shape,L) # coco
         H,W = hw_shape
-        x_orig = x.clone()
+        mixed_x = self.drop_path(self.mamba(self.norm(x), hw_shape)) # [B,L,C]
+        # TODO:Insert Pruning/Merging method
         if self.method == "none" or self.method is None:
-            new_hw_shape = hw_shape
-        elif self.method == "random":
             pass
-            # L_target = self.schedual.get(self.layer_idx,H*W)
-            # num_prune = H*W - L_target
-            # if num_prune > 0:
-            #     prune_fn = self.random_prune(mixed_x, num_prune)
-            #     mixed_x = prune_fn(mixed_x)
-            #     x = prune_fn(x)
-            #     hw_shape = (int(L_target**0.5), int(L_target**0.5))
+        elif self.method == "random":
+            L_target = self.schedual.get(self.layer_idx,H*W)
+            num_prune = H*W - L_target
+            if num_prune > 0:
+                prune_fn = self.random_prune(mixed_x, num_prune)
+                mixed_x = prune_fn(mixed_x)
+                x = prune_fn(x)
+                hw_shape = (int(L_target**0.5), int(L_target**0.5))
         elif self.method == "tome":
             # L_target = self.schedual.get(self.layer_idx, H * W)
             # num_prune = H * W - L_target
+
             new_hw_shape = self.get_num_prune_for_coco(hw_shape)  # coco
             H_new, W_new = new_hw_shape  # coco
             num_prune = H * W - H_new * W_new
             if num_prune > 0:
-                _, x = self.merger(x, x, None,num_prune)
+                mixed_x, x = self.merger(mixed_x, x, None,num_prune)
                 # hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
-                # hw_shape = new_hw_shape
+                hw_shape = new_hw_shape
         elif self.method == "tome2d":
-            pass
-            # L_target = self.schedual.get(self.layer_idx, H * W)
-            # num_prune = H * W - L_target
-            # if num_prune > 0:
-            #     # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
-            #     H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
-            #
-            #     # [B, L, D] -> [B, D, H, W]
-            #     mixed_x_bchw = mixed_x.transpose(1, 2).reshape(B, D, H, W)
-            #     x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
-            #
-            #     if mixed_x_bchw.shape[-2:] != (H_new, H_new):
-            #         prune_fn = self.merge2d(
-            #             x_bchw,
-            #             num_prune_w=H - H_new,
-            #             num_prune_h=H - H_new,
-            #         )
-            #         mixed_x_bchw = prune_fn(mixed_x_bchw)
-            #         x_bchw = prune_fn(x_bchw)
-            #
-            #     # [B, D, H_new, H_new] -> [B, L_new, D]
-            #     mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
-            #     x = x_bchw.flatten(2).transpose(1, 2)
-            #     hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
+            L_target = self.schedual.get(self.layer_idx, H * W)
+            num_prune = H * W - L_target
+            if num_prune > 0:
+                # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
+                H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
+
+                # [B, L, D] -> [B, D, H, W]
+                mixed_x_bchw = mixed_x.transpose(1, 2).reshape(B, D, H, W)
+                x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+
+                if mixed_x_bchw.shape[-2:] != (H_new, H_new):
+                    prune_fn = self.merge2d(
+                        x_bchw,
+                        num_prune_w=H - H_new,
+                        num_prune_h=H - H_new,
+                    )
+                    mixed_x_bchw = prune_fn(mixed_x_bchw)
+                    x_bchw = prune_fn(x_bchw)
+
+                # [B, D, H_new, H_new] -> [B, L_new, D]
+                mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
+                x = x_bchw.flatten(2).transpose(1, 2)
+                hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
         elif self.method == "interpolate":
-            pass
-            # L_target = self.schedual.get(self.layer_idx,H*W)
-            # num_prune = H*W - L_target
-            # if num_prune > 0:
-            #     mixed_x = self.interpolate_prune(mixed_x, num_prune)
-            #     x = self.interpolate_prune(x,num_prune)
-            #     hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
+            L_target = self.schedual.get(self.layer_idx,H*W)
+            num_prune = H*W - L_target
+            if num_prune > 0:
+                mixed_x = self.interpolate_prune(mixed_x, num_prune)
+                x = self.interpolate_prune(x,num_prune)
+                hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
         elif self.method == "conv_tome2d":
-            pass
-            # L_target = self.schedual.get(self.layer_idx, H * W)
-            # num_prune = H * W - L_target
-            # if num_prune > 0:
-            #     # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
-            #     H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
-            #
-            #     # [B, L, D] -> [B, D, H, W]
-            #     mixed_x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
-            #     x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
-            #
-            #     if mixed_x_bchw.shape[-2:] != (H_new, H_new):
-            #         prune_fn = self.conv_tome_2d(
-            #             x_bchw,
-            #             target_hw=(H_new, H_new)
-            #         )
-            #         mixed_x_bchw = prune_fn(mixed_x_bchw)
-            #         x_bchw = prune_fn(x_bchw)
-            #
-            #     # [B, D, H_new, H_new] -> [B, L_new, D]
-            #     mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
-            #     x = x_bchw.flatten(2).transpose(1, 2)
-            #     hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
+            L_target = self.schedual.get(self.layer_idx, H * W)
+            num_prune = H * W - L_target
+            if num_prune > 0:
+                # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
+                H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
+
+                # [B, L, D] -> [B, D, H, W]
+                mixed_x_bchw = mixed_x.transpose(1, 2).reshape(B, D, H, W)
+                x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+
+                if mixed_x_bchw.shape[-2:] != (H_new, H_new):
+                    prune_fn = self.conv_tome_2d(
+                        x_bchw,
+                        target_hw=(H_new, H_new)
+                    )
+                    mixed_x_bchw = prune_fn(mixed_x_bchw)
+                    x_bchw = prune_fn(x_bchw)
+
+                # [B, D, H_new, H_new] -> [B, L_new, D]
+                mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
+                x = x_bchw.flatten(2).transpose(1, 2)
+                hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
         elif self.method == "fixed_window_tome2dv2":
-            # L_target = self.schedual.get(self.layer_idx, H * W) # classification
-            new_hw_shape = self.get_num_prune_for_coco(hw_shape) # coco
-            H_new, W_new = new_hw_shape # coco
-            # num_prune = H * W - L_target # classification
-            num_prune = H * W - H_new*W_new
+            L_target = self.schedual.get(self.layer_idx, H * W) # classification
+            num_prune = H * W - L_target # classification
+            H_new, W_new = (int(L_target ** 0.5), int(L_target ** 0.5))
+            new_hw_shape = (H_new, W_new)
+
+            # new_hw_shape = self.get_num_prune_for_coco(hw_shape) # coco
+            # H_new, W_new = new_hw_shape # coco
+
+            # num_prune = H * W - H_new*W_new
             if num_prune > 0:
                 # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
                 # H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
 
                 # [B, L, D] -> [B, D, H, W]
-                mixed_x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+                mixed_x_bchw = mixed_x.transpose(1, 2).reshape(B, D, H, W)
                 x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
 
                 if mixed_x_bchw.shape[-2:] != (H_new, W_new):
@@ -803,20 +581,20 @@ class PlainMambaLayer(nn.Module):
                 mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
                 x = x_bchw.flatten(2).transpose(1, 2)
                 # hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5)) # classification
+                hw_shape = new_hw_shape
         elif self.method == "HSA":
-            pass
-            # L_target = self.schedual.get(self.layer_idx, H * W)
-            # num_prune = H * W - L_target
-            # if num_prune > 0:
-            #     # [B, L, D] -> [B, D, H, W]
-            #     mixed_x_bchw = mixed_x.transpose(1, 2)
-            #     x_bchw = x.transpose(1, 2)
-            #
-            #     mixed_x_bchw, x_bchw = self.HSA_pruner(mixed_x_bchw, x_bchw,num_prune)
-            #
-            #     mixed_x = mixed_x_bchw.transpose(1, 2)
-            #     x = x_bchw.transpose(1, 2)
-            #     hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
+            L_target = self.schedual.get(self.layer_idx, H * W)
+            num_prune = H * W - L_target
+            if num_prune > 0:
+                # [B, L, D] -> [B, D, H, W]
+                mixed_x_bchw = mixed_x.transpose(1, 2)
+                x_bchw = x.transpose(1, 2)
+
+                mixed_x_bchw, x_bchw = self.HSA_pruner(mixed_x_bchw, x_bchw,num_prune)
+
+                mixed_x = mixed_x_bchw.transpose(1, 2)
+                x = x_bchw.transpose(1, 2)
+                hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
         elif self.method == "EViT":
             # L_target = self.schedual.get(self.layer_idx, H * W)
             # num_prune = H * W - L_target
@@ -825,7 +603,7 @@ class PlainMambaLayer(nn.Module):
             num_prune = H * W - H_new * W_new
             if num_prune > 0:
                 # [B, L, D] -> [B, D, H, W]
-                mixed_x_bchw = x.transpose(1, 2)
+                mixed_x_bchw = mixed_x.transpose(1, 2)
                 x_bchw = x.transpose(1, 2)
 
                 mixed_x_bchw, x_bchw = self.EViT_pruner(mixed_x_bchw, x_bchw,num_prune)
@@ -833,25 +611,22 @@ class PlainMambaLayer(nn.Module):
                 mixed_x = mixed_x_bchw.transpose(1, 2)
                 x = x_bchw.transpose(1, 2)
             # hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
-            # hw_shape = new_hw_shape
+            hw_shape = new_hw_shape
         elif self.method == "EViT2D":
-            # L_target = self.schedual.get(self.layer_idx, H * W) # classification
-            new_hw_shape = self.get_num_prune_for_coco(hw_shape) # coco
-            H_new, W_new = new_hw_shape # coco
-            # num_prune = H * W - L_target # classification
-            num_prune = H * W - H_new*W_new
+            L_target = self.schedual.get(self.layer_idx, H * W)
+            num_prune = H * W - L_target
             if num_prune > 0:
                 # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
-                # H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
+                H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
 
                 # [B, L, D] -> [B, D, H, W]
-                mixed_x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+                mixed_x_bchw = mixed_x.transpose(1, 2).reshape(B, D, H, W)
                 x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
 
-                if mixed_x_bchw.shape[-2:] != (H_new, W_new):
+                if mixed_x_bchw.shape[-2:] != (H_new, H_new):
                     prune_fn = self.EViT2D_pruner(
                         x_bchw,
-                        num_prune_w=W - W_new,
+                        num_prune_w=H - H_new,
                         num_prune_h=H - H_new,
                     )
                     mixed_x_bchw = prune_fn(mixed_x_bchw)
@@ -860,6 +635,7 @@ class PlainMambaLayer(nn.Module):
                 # [B, D, H_new, H_new] -> [B, L_new, D]
                 mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
                 x = x_bchw.flatten(2).transpose(1, 2)
+                hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
         elif self.method == "fixed_window_evit2d":
             # L_target = self.schedual.get(self.layer_idx, H * W) # classification
             new_hw_shape = self.get_num_prune_for_coco(hw_shape) # coco
@@ -871,7 +647,7 @@ class PlainMambaLayer(nn.Module):
                 # H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
 
                 # [B, L, D] -> [B, D, H, W]
-                mixed_x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+                mixed_x_bchw = mixed_x.transpose(1, 2).reshape(B, D, H, W)
                 x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
 
                 if mixed_x_bchw.shape[-2:] != (H_new, W_new):
@@ -886,6 +662,8 @@ class PlainMambaLayer(nn.Module):
                 # [B, D, H_new, H_new] -> [B, L_new, D]
                 mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
                 x = x_bchw.flatten(2).transpose(1, 2)
+                # hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5)) # classification
+                hw_shape = new_hw_shape
         elif self.method == "randomToMe2D":
             L_target = self.schedual.get(self.layer_idx, H * W)
             num_prune = H * W - L_target
@@ -894,7 +672,7 @@ class PlainMambaLayer(nn.Module):
                 H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
 
                 # [B, L, D] -> [B, D, H, W]
-                mixed_x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+                mixed_x_bchw = mixed_x.transpose(1, 2).reshape(B, D, H, W)
                 x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
 
                 if mixed_x_bchw.shape[-2:] != (H_new, H_new):
@@ -909,18 +687,244 @@ class PlainMambaLayer(nn.Module):
                 # [B, D, H_new, H_new] -> [B, L_new, D]
                 mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
                 x = x_bchw.flatten(2).transpose(1, 2)
-                # hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
-
-
-        mixed_x = self.drop_path(self.mamba(self.norm(x), new_hw_shape)) # [B,L,C]
-        # TODO:Insert Pruning/Merging method
-
-        mixed_x = F.interpolate(mixed_x.transpose(1, 2).reshape(B,D,new_hw_shape[0],new_hw_shape[1]), size=hw_shape, mode="nearest").flatten(2).transpose(1, 2)
-        mixed_x = mixed_x + x_orig
+                hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
+        mixed_x = mixed_x + x
         if self.with_dwconv:
             b, l, c = mixed_x.shape
             h, w = hw_shape
             mixed_x = mixed_x.reshape(b, h, w, c).permute(0, 3, 1, 2)
             mixed_x = self.dw(mixed_x)
             mixed_x = mixed_x.reshape(b, c, h * w).permute(0, 2, 1)
-        return mixed_x
+        return mixed_x, hw_shape
+
+    # def forward(self, x, hw_shape): # for coco
+    #     B,L,D = x.shape
+    #     hw_shape = self.guess_shape(hw_shape,L) # coco
+    #     H,W = hw_shape
+    #     x_orig = x.clone()
+    #     if self.method == "none" or self.method is None:
+    #         new_hw_shape = hw_shape
+    #     elif self.method == "random":
+    #         pass
+    #         # L_target = self.schedual.get(self.layer_idx,H*W)
+    #         # num_prune = H*W - L_target
+    #         # if num_prune > 0:
+    #         #     prune_fn = self.random_prune(mixed_x, num_prune)
+    #         #     mixed_x = prune_fn(mixed_x)
+    #         #     x = prune_fn(x)
+    #         #     hw_shape = (int(L_target**0.5), int(L_target**0.5))
+    #     elif self.method == "tome":
+    #         # L_target = self.schedual.get(self.layer_idx, H * W)
+    #         # num_prune = H * W - L_target
+    #         new_hw_shape = self.get_num_prune_for_coco(hw_shape)  # coco
+    #         H_new, W_new = new_hw_shape  # coco
+    #         num_prune = H * W - H_new * W_new
+    #         if num_prune > 0:
+    #             _, x = self.merger(x, x, None,num_prune)
+    #             # hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
+    #             # hw_shape = new_hw_shape
+    #     elif self.method == "tome2d":
+    #         pass
+    #         # L_target = self.schedual.get(self.layer_idx, H * W)
+    #         # num_prune = H * W - L_target
+    #         # if num_prune > 0:
+    #         #     # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
+    #         #     H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
+    #         #
+    #         #     # [B, L, D] -> [B, D, H, W]
+    #         #     mixed_x_bchw = mixed_x.transpose(1, 2).reshape(B, D, H, W)
+    #         #     x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+    #         #
+    #         #     if mixed_x_bchw.shape[-2:] != (H_new, H_new):
+    #         #         prune_fn = self.merge2d(
+    #         #             x_bchw,
+    #         #             num_prune_w=H - H_new,
+    #         #             num_prune_h=H - H_new,
+    #         #         )
+    #         #         mixed_x_bchw = prune_fn(mixed_x_bchw)
+    #         #         x_bchw = prune_fn(x_bchw)
+    #         #
+    #         #     # [B, D, H_new, H_new] -> [B, L_new, D]
+    #         #     mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
+    #         #     x = x_bchw.flatten(2).transpose(1, 2)
+    #         #     hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
+    #     elif self.method == "interpolate":
+    #         pass
+    #         # L_target = self.schedual.get(self.layer_idx,H*W)
+    #         # num_prune = H*W - L_target
+    #         # if num_prune > 0:
+    #         #     mixed_x = self.interpolate_prune(mixed_x, num_prune)
+    #         #     x = self.interpolate_prune(x,num_prune)
+    #         #     hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
+    #     elif self.method == "conv_tome2d":
+    #         pass
+    #         # L_target = self.schedual.get(self.layer_idx, H * W)
+    #         # num_prune = H * W - L_target
+    #         # if num_prune > 0:
+    #         #     # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
+    #         #     H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
+    #         #
+    #         #     # [B, L, D] -> [B, D, H, W]
+    #         #     mixed_x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+    #         #     x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+    #         #
+    #         #     if mixed_x_bchw.shape[-2:] != (H_new, H_new):
+    #         #         prune_fn = self.conv_tome_2d(
+    #         #             x_bchw,
+    #         #             target_hw=(H_new, H_new)
+    #         #         )
+    #         #         mixed_x_bchw = prune_fn(mixed_x_bchw)
+    #         #         x_bchw = prune_fn(x_bchw)
+    #         #
+    #         #     # [B, D, H_new, H_new] -> [B, L_new, D]
+    #         #     mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
+    #         #     x = x_bchw.flatten(2).transpose(1, 2)
+    #         #     hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
+    #     elif self.method == "fixed_window_tome2dv2":
+    #         # L_target = self.schedual.get(self.layer_idx, H * W) # classification
+    #         new_hw_shape = self.get_num_prune_for_coco(hw_shape) # coco
+    #         H_new, W_new = new_hw_shape # coco
+    #         # num_prune = H * W - L_target # classification
+    #         num_prune = H * W - H_new*W_new
+    #         if num_prune > 0:
+    #             # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
+    #             # H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
+    #
+    #             # [B, L, D] -> [B, D, H, W]
+    #             mixed_x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+    #             x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+    #
+    #             if mixed_x_bchw.shape[-2:] != (H_new, W_new):
+    #                 prune_fn = self.fixed_window_tome2dv2(
+    #                     x_bchw,
+    #                     num_prune_w=W - W_new,
+    #                     num_prune_h=H - H_new,
+    #                 )
+    #                 mixed_x_bchw = prune_fn(mixed_x_bchw)
+    #                 x_bchw = prune_fn(x_bchw)
+    #
+    #             # [B, D, H_new, H_new] -> [B, L_new, D]
+    #             mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
+    #             x = x_bchw.flatten(2).transpose(1, 2)
+    #             # hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5)) # classification
+    #     elif self.method == "HSA":
+    #         pass
+    #         # L_target = self.schedual.get(self.layer_idx, H * W)
+    #         # num_prune = H * W - L_target
+    #         # if num_prune > 0:
+    #         #     # [B, L, D] -> [B, D, H, W]
+    #         #     mixed_x_bchw = mixed_x.transpose(1, 2)
+    #         #     x_bchw = x.transpose(1, 2)
+    #         #
+    #         #     mixed_x_bchw, x_bchw = self.HSA_pruner(mixed_x_bchw, x_bchw,num_prune)
+    #         #
+    #         #     mixed_x = mixed_x_bchw.transpose(1, 2)
+    #         #     x = x_bchw.transpose(1, 2)
+    #         #     hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
+    #     elif self.method == "EViT":
+    #         # L_target = self.schedual.get(self.layer_idx, H * W)
+    #         # num_prune = H * W - L_target
+    #         new_hw_shape = self.get_num_prune_for_coco(hw_shape)  # coco
+    #         H_new, W_new = new_hw_shape  # coco
+    #         num_prune = H * W - H_new * W_new
+    #         if num_prune > 0:
+    #             # [B, L, D] -> [B, D, H, W]
+    #             mixed_x_bchw = x.transpose(1, 2)
+    #             x_bchw = x.transpose(1, 2)
+    #
+    #             mixed_x_bchw, x_bchw = self.EViT_pruner(mixed_x_bchw, x_bchw,num_prune)
+    #
+    #             mixed_x = mixed_x_bchw.transpose(1, 2)
+    #             x = x_bchw.transpose(1, 2)
+    #         # hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
+    #         # hw_shape = new_hw_shape
+    #     elif self.method == "EViT2D":
+    #         # L_target = self.schedual.get(self.layer_idx, H * W) # classification
+    #         new_hw_shape = self.get_num_prune_for_coco(hw_shape) # coco
+    #         H_new, W_new = new_hw_shape # coco
+    #         # num_prune = H * W - L_target # classification
+    #         num_prune = H * W - H_new*W_new
+    #         if num_prune > 0:
+    #             # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
+    #             # H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
+    #
+    #             # [B, L, D] -> [B, D, H, W]
+    #             mixed_x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+    #             x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+    #
+    #             if mixed_x_bchw.shape[-2:] != (H_new, W_new):
+    #                 prune_fn = self.EViT2D_pruner(
+    #                     x_bchw,
+    #                     num_prune_w=W - W_new,
+    #                     num_prune_h=H - H_new,
+    #                 )
+    #                 mixed_x_bchw = prune_fn(mixed_x_bchw)
+    #                 x_bchw = prune_fn(x_bchw)
+    #
+    #             # [B, D, H_new, H_new] -> [B, L_new, D]
+    #             mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
+    #             x = x_bchw.flatten(2).transpose(1, 2)
+    #     elif self.method == "fixed_window_evit2d":
+    #         # L_target = self.schedual.get(self.layer_idx, H * W) # classification
+    #         new_hw_shape = self.get_num_prune_for_coco(hw_shape) # coco
+    #         H_new, W_new = new_hw_shape # coco
+    #         # num_prune = H * W - L_target # classification
+    #         num_prune = H * W - H_new*W_new
+    #         if num_prune > 0:
+    #             # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
+    #             # H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
+    #
+    #             # [B, L, D] -> [B, D, H, W]
+    #             mixed_x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+    #             x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+    #
+    #             if mixed_x_bchw.shape[-2:] != (H_new, W_new):
+    #                 prune_fn = self.fixed_window_evit2d(
+    #                     x_bchw,
+    #                     num_prune_w=W - W_new,
+    #                     num_prune_h=H - H_new,
+    #                 )
+    #                 mixed_x_bchw = prune_fn(mixed_x_bchw)
+    #                 x_bchw = prune_fn(x_bchw)
+    #
+    #             # [B, D, H_new, H_new] -> [B, L_new, D]
+    #             mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
+    #             x = x_bchw.flatten(2).transpose(1, 2)
+    #     elif self.method == "randomToMe2D":
+    #         L_target = self.schedual.get(self.layer_idx, H * W)
+    #         num_prune = H * W - L_target
+    #         if num_prune > 0:
+    #             # L = H * W，这里也可以直接用 H_new = math.isqrt(L_target)
+    #             H_new = math.isqrt(L - num_prune)  # 或 math.isqrt(L_target)
+    #
+    #             # [B, L, D] -> [B, D, H, W]
+    #             mixed_x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+    #             x_bchw = x.transpose(1, 2).reshape(B, D, H, W)
+    #
+    #             if mixed_x_bchw.shape[-2:] != (H_new, H_new):
+    #                 prune_fn = self.RandomHardPruneSTORM_pruner(
+    #                     x_bchw,
+    #                     num_prune_w=H - H_new,
+    #                     num_prune_h=H - H_new,
+    #                 )
+    #                 mixed_x_bchw = prune_fn(mixed_x_bchw)
+    #                 x_bchw = prune_fn(x_bchw)
+    #
+    #             # [B, D, H_new, H_new] -> [B, L_new, D]
+    #             mixed_x = mixed_x_bchw.flatten(2).transpose(1, 2)
+    #             x = x_bchw.flatten(2).transpose(1, 2)
+    #             # hw_shape = (int(L_target ** 0.5), int(L_target ** 0.5))
+    #
+    #
+    #     mixed_x = self.drop_path(self.mamba(self.norm(x), new_hw_shape)) # [B,L,C]
+    #     # TODO:Insert Pruning/Merging method
+    #
+    #     mixed_x = F.interpolate(mixed_x.transpose(1, 2).reshape(B,D,new_hw_shape[0],new_hw_shape[1]), size=hw_shape, mode="nearest").flatten(2).transpose(1, 2)
+    #     mixed_x = mixed_x + x_orig
+    #     if self.with_dwconv:
+    #         b, l, c = mixed_x.shape
+    #         h, w = hw_shape
+    #         mixed_x = mixed_x.reshape(b, h, w, c).permute(0, 3, 1, 2)
+    #         mixed_x = self.dw(mixed_x)
+    #         mixed_x = mixed_x.reshape(b, c, h * w).permute(0, 2, 1)
+    #     return mixed_x

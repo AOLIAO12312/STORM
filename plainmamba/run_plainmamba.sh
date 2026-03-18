@@ -7,7 +7,7 @@ export PYTHONPATH=$PYTHONPATH:$PROJECT_ROOT
 # --- 默认参数设置 ---
 DEFAULT_CFG="plain_mamba_configs/plain_mamba_l2_in1k_300e.py"
 DEFAULT_CHECKPOINT="/home/PlainMamba/weights/l2.pth"
-DEFAULT_GPUS=1
+DEFAULT_GPUS=4
 DEFAULT_PORT=29503
 
 # 初始化变量

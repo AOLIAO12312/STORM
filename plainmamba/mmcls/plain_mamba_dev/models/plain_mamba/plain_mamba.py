@@ -237,10 +237,11 @@ class PlainMamba(BaseBackbone):
         x = self.drop_after_pos(x)
 
         outs = []
+        B, L, D = x.shape
+        hw_shape = (int(L**0.5),int(L**0.5))
         for i, layer in enumerate(self.layers):
-            B,L,D = x.shape
-            hw_shape = (int(L**0.5),int(L**0.5))
-            x = layer(x, hw_shape=hw_shape)
+
+            x, hw_shape = layer(x, hw_shape=hw_shape)
 
             if i == len(self.layers) - 1 and self.final_norm:
                 x = self.norm1(x)
