@@ -497,13 +497,13 @@ class Mlp(nn.Module):
         x = self.drop(x)
         return x
 
-from .FixedWindowToMe2D import FixedWindowToMe2Dv2
-from .TokenMerge2Dv4 import TokenMerge2Dv4
-from .EViT import EViTTokenPruning
-from .HSA import HSA
-from .EViT2D import EViT2DStructuredPruning
-from .FixedWindowEViT2D import FixedWindowEViT2D
-from .RandomHardPruneFixedWindowToMe2D import RandomHardPruneFixedWindowToMe2D
+from .token_reduction.FixedWindowToMe2D import FixedWindowToMe2Dv2
+from .token_reduction.TokenMerge2Dv4 import TokenMerge2Dv4
+from .token_reduction.EViT import EViTTokenPruning
+from .token_reduction.HSA import HSA
+from .token_reduction.EViT2D import EViT2DStructuredPruning
+from .token_reduction.FixedWindowEViT2D import FixedWindowEViT2D
+from .token_reduction.RandomHardPruneFixedWindowToMe2D import RandomHardPruneFixedWindowToMe2D
 
 class VSSBlock(nn.Module):
     def __init__(
@@ -580,16 +580,16 @@ class VSSBlock(nn.Module):
             if_prune=False,
             distance='l1',
             merge_mode='sum',
-            window_size=5,        # 或单独给 window_size_w / window_size_h
+            window_size=5,
         )
 
         self.merger = TokenMerge2Dv4(
-            num_prune=0,  # 每轮合并 r 对（等价减少 r 个 token）
-            if_prune=True,  # True=纯删；False=合并到 dst（推荐）
-            if_order=True,  # True=保持原顺序；False=不保持
-            distance='cosine',  # 'cosine' / 'l1' / 'l2'
-            merge_mode='sum',  # 权重聚合方式（传给 scatter_reduce）
-            choose='max'  # 选择策略
+            num_prune=0,
+            if_prune=True,
+            if_order=True,
+            distance='cosine',
+            merge_mode='sum',
+            choose='max'
         )
 
         self.HSA_pruner = HSA()

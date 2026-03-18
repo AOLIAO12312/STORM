@@ -21,11 +21,11 @@ from mamba_ssm.ops.triton.layernorm import RMSNorm, layer_norm_fn, rms_norm_fn
 
 import torch.nn.functional as F
 
-from .ToMe1D import RMeeTo_Merge
-from .RandomPrune import RandomPrune
-from .InterpolatePrune import InterpolatePrune
-from .ToMe2D import ToMe2D
-from .ConvToMe2D import ConvToMe2D
+from localmamba.classification.lib.models.token_reduction.ToMe1D import RMeeTo_Merge
+from localmamba.classification.lib.models.token_reduction.RandomPrune import RandomPrune
+from localmamba.classification.lib.models.token_reduction.InterpolatePrune import InterpolatePrune
+from localmamba.classification.lib.models.token_reduction.ToMe2D import ToMe2D
+from localmamba.classification.lib.models.token_reduction.ConvToMe2D import ConvToMe2D
 class Block(nn.Module):
     def __init__(
             self, dim, mixer_cls, norm_cls=nn.LayerNorm, fused_add_norm=False, residual_in_fp32=False, drop_path=0.,
