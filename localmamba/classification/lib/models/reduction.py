@@ -89,7 +89,6 @@ class TokenReduction(nn.Module):
         if self.method == "none" or self.method is None:
             x = x + drop_path(op(norm(x)))
         elif self.method == "scale":
-            # pre_stage像素级进行nearest剪枝
             num_prune = self.get_prune_num(mode="manual", size=H, ratio=self.prune_ratio, layer_idx=layer_idx, stage_idx=stage_idx)
             L = H * W
             H_new = math.isqrt(L - num_prune)
