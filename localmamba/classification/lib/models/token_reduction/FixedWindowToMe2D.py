@@ -25,7 +25,6 @@ class ToMe2D(nn.Module):
     then the returned prune_fn(x) reuses those indices to prune ANY BCHW tensor of the same
     spatial size.
     """
-
     def __init__(
         self,
         if_prune: bool = False,         # if True: drop src instead of merging into dst (hard prune)
@@ -107,7 +106,6 @@ class ToMe2D(nn.Module):
         T_dst = dst.shape[1]
 
         if T_dst == 0:
-            # width==1，无可合并，但仍可能有 1 个 src 作为 tail
             return dict(
                 N=N, W=W, W_out=W,
                 T_src=T_src, T_dst=T_dst,
@@ -116,37 +114,28 @@ class ToMe2D(nn.Module):
                 src_orig=None, dst_orig=None, tail_orig=None
             )
 
-        # 只对前 T_pair = T_dst 个 even/odd 成对计算相似度
         T_pair = T_dst
-        tail_len = T_src - T_pair    # 0 or 1，对应奇数 W 时最后一个 even
+        tail_len = T_src - T_pair
 
-        # 决定每行合并多少对
         r_w = T_pair if (num_prune_w is None) else min(num_prune_w, T_pair)
         if r_w < 0:
             r_w = 0
-
-        # Compute local pair scores: [N, T_pair]
         scores = self._pair_scores(src[:, :T_pair, :], dst)
-
         # Sort pairs by score (descending): edge_idx shape [N, T_pair, 1]
         edge_idx = scores.argsort(dim=-1, descending=True)[..., None]  # [N, T_pair, 1]
-
         # Indices for src_main that will remain (unmerged) vs be merged
-        unm_idx = edge_idx[..., r_w:, :]       # [N, T_pair - r_w, 1]  -- refer to src positions (0..T_pair-1)
-        src_idx = edge_idx[..., :r_w, :]       # [N, r_w, 1]
+        unm_idx = edge_idx[..., r_w:, :]
+        src_idx = edge_idx[..., :r_w, :]
         # dst partner is the same index j for local pairs:
-        dst_idx = src_idx.clone()              # [N, r_w, 1]
-
+        dst_idx = src_idx.clone()
         # Original column indices for ordering
         idx_origin = torch.arange(W, device=device).view(1, W, 1).expand(N, W, 1)
-        src_orig = idx_origin[:, 0::2, :]                      # [N, T_src, 1]
-        dst_orig = idx_origin[:, 1::2, :]                      # [N, T_dst, 1]
-        tail_orig = src_orig[:, T_pair:, :]                    # [N, tail_len, 1] (0 or 1)
-
+        src_orig = idx_origin[:, 0::2, :]
+        dst_orig = idx_origin[:, 1::2, :]
+        tail_orig = src_orig[:, T_pair:, :]
         # output width after horizontal stage:
         # true T_out = (T_pair - r_w) + T_dst + tail_len = W - r_w
         W_out = W - r_w
-
         plan = dict(
             N=N, W=W, W_out=W_out,
             T_src=T_src, T_dst=T_dst,
@@ -156,7 +145,7 @@ class ToMe2D(nn.Module):
         )
         return plan
 
-    # ---------- Vertical planning (per column) ----------
+    # Vertical planning
     def _plan_along_height(
         self,
         feat_after_w: torch.Tensor,
@@ -193,20 +182,17 @@ class ToMe2D(nn.Module):
         if r_h < 0:
             r_h = 0
 
-        scores = self._pair_scores(src[:, :T_pair, :], dst)   # [N, T_pair]
+        scores = self._pair_scores(src[:, :T_pair, :], dst)
         edge_idx = scores.argsort(dim=-1, descending=True)[..., None]
-        unm_idx = edge_idx[..., r_h:, :]                      # [N, T_pair - r_h, 1]
-        src_idx = edge_idx[..., :r_h, :]                      # [N, r_h, 1]
+        unm_idx = edge_idx[..., r_h:, :]
+        src_idx = edge_idx[..., :r_h, :]
         dst_idx = src_idx.clone()
-
         idx_origin = torch.arange(H, device=device).view(1, H, 1).expand(N, H, 1)
-        src_orig = idx_origin[:, 0::2, :]                     # [N, T_src, 1]
-        dst_orig = idx_origin[:, 1::2, :]                     # [N, T_dst, 1]
-        tail_orig = src_orig[:, T_pair:, :]                   # [N, tail_len, 1]
-
+        src_orig = idx_origin[:, 0::2, :]
+        dst_orig = idx_origin[:, 1::2, :]
+        tail_orig = src_orig[:, T_pair:, :]
         # output height after vertical stage: H_out = H - r_h
         H_out = H - r_h
-
         plan = dict(
             N=N, H=H, H_out=H_out,
             T_src=T_src, T_dst=T_dst,
@@ -216,7 +202,7 @@ class ToMe2D(nn.Module):
         )
         return plan
 
-    # ---------- Apply one-axis merge ----------
+    # Apply one-axis merge
     def _merge_along_width(
         self, x: torch.Tensor, plan: dict
     ) -> torch.Tensor:
@@ -230,34 +216,26 @@ class ToMe2D(nn.Module):
         T_dst = plan['T_dst']
         T_pair = plan['T_pair']
         tail_len = plan['tail_len']
-
         if T_dst == 0:
-            # no pairs,可能只有 1 个 tail，直接返回
             return x
-
-        # [B, H, W, C] -> [N=B*H, W, C]
         x_seq = x.permute(0, 2, 3, 1).contiguous().view(N, W, C)
-        src = x_seq[:, 0::2, :]                     # [N, T_src, C]
-        dst = x_seq[:, 1::2, :]                     # [N, T_dst, C]
+        src = x_seq[:, 0::2, :]
+        dst = x_seq[:, 1::2, :]
         assert src.shape[1] == T_src and dst.shape[1] == T_dst
-
         # main pairs + possible tail
-        src_main = src[:, :T_pair, :]              # [N, T_pair, C]
-        tail = src[:, T_pair:, :]                  # [N, tail_len, C] (0 or 1)
-
+        src_main = src[:, :T_pair, :]
+        tail = src[:, T_pair:, :]
         unm_idx = plan['unm_idx']
         src_idx = plan['src_idx']
         dst_idx = plan['dst_idx']
         src_orig = plan['src_orig']
         dst_orig = plan['dst_orig']
         tail_orig = plan['tail_orig']
-
         # gather unmerged evens from src_main
         if unm_idx is not None:
             unm = src_main.gather(dim=-2, index=unm_idx.expand(N, unm_idx.shape[-2], C))  # [N, T_pair - r, C]
         else:
             unm = src_main
-
         # gather merged evens that will be added into dst
         if src_idx is not None and src_idx.numel() > 0:
             src_sel = src_main.gather(dim=-2, index=src_idx.expand(N, src_idx.shape[-2], C))  # [N, r, C]
@@ -271,25 +249,21 @@ class ToMe2D(nn.Module):
                 src_sel,
                 reduce=self.merge_mode
             )
-        # else: hard prune, just drop src_sel, keep dst
-
         if self.if_order:
             # Order by original column indices
             src_orig_main = src_orig[:, :T_pair, :]
             if unm_idx is not None:
-                src_idx_original = src_orig_main.gather(dim=-2, index=unm_idx)     # [N, T_pair - r, 1]
+                src_idx_original = src_orig_main.gather(dim=-2, index=unm_idx)
             else:
                 src_idx_original = src_orig_main
 
-            original_idx = torch.cat([src_idx_original, tail_orig, dst_orig], dim=1)  # [N, T_out, 1]
-            seq = torch.cat([unm, tail, dst], dim=1)                                  # [N, T_out, C]
-
-            sorted_idx, idx = original_idx.sort(dim=1)
-            seq = seq.gather(dim=-2, index=idx.expand(N, seq.shape[1], C))            # restore left->right
-        else:
+            original_idx = torch.cat([src_idx_original, tail_orig, dst_orig], dim=1)
             seq = torch.cat([unm, tail, dst], dim=1)
 
-        # back to [B, C, H, W_out]
+            sorted_idx, idx = original_idx.sort(dim=1)
+            seq = seq.gather(dim=-2, index=idx.expand(N, seq.shape[1], C))
+        else:
+            seq = torch.cat([unm, tail, dst], dim=1)
         W_out = plan['W_out']
         assert seq.shape[1] == W_out, f"Width mismatch: {seq.shape[1]} vs {W_out}"
         seq = seq.view(B, H, W_out, C).permute(0, 3, 1, 2).contiguous()
@@ -308,19 +282,14 @@ class ToMe2D(nn.Module):
         T_dst = plan['T_dst']
         T_pair = plan['T_pair']
         tail_len = plan['tail_len']
-
         if T_dst == 0:
             return x
-
-        # [B, W, H, C] -> [N=B*W, H, C]
         x_seq = x.permute(0, 3, 2, 1).contiguous().view(N, H, C)
-        src = x_seq[:, 0::2, :]  # [N, T_src, C]
-        dst = x_seq[:, 1::2, :]  # [N, T_dst, C]
+        src = x_seq[:, 0::2, :]
+        dst = x_seq[:, 1::2, :]
         assert src.shape[1] == T_src and dst.shape[1] == T_dst
-
         src_main = src[:, :T_pair, :]
         tail = src[:, T_pair:, :]
-
         unm_idx = plan['unm_idx']
         src_idx = plan['src_idx']
         dst_idx = plan['dst_idx']
@@ -337,7 +306,6 @@ class ToMe2D(nn.Module):
             src_sel = src_main.gather(dim=-2, index=src_idx.expand(N, src_idx.shape[-2], C))
         else:
             src_sel = None
-
         if not self.if_prune and src_sel is not None and dst_idx.numel() > 0:
             dst = self._safe_scatter_reduce(
                 dst,
@@ -360,18 +328,16 @@ class ToMe2D(nn.Module):
             seq = seq.gather(dim=-2, index=idx.expand(N, seq.shape[1], C))  # restore top->bottom
         else:
             seq = torch.cat([unm, tail, dst], dim=1)
-
         H_out = plan['H_out']
         assert seq.shape[1] == H_out, f"Height mismatch: {seq.shape[1]} vs {H_out}"
         seq = seq.view(B, W, H_out, C).permute(0, 3, 2, 1).contiguous()
         return seq
 
-    # ---------- Public: forward returns a prune_fn ----------
     def forward(
         self,
-        metric: torch.Tensor,                 # BCHW feature used to compute the merging plan
-        num_prune_w: Optional[int] = None,    # per-row number of pairs to merge along width; None -> max (halve-ish)
-        num_prune_h: Optional[int] = None     # per-column number of pairs to merge along height; None -> max (halve-ish)
+        metric: torch.Tensor,
+        num_prune_w: Optional[int] = None,
+        num_prune_h: Optional[int] = None
     ) -> Callable[[torch.Tensor], torch.Tensor]:
         """
         Plan merges along W then H using 'metric', and return a prune_fn that applies those
@@ -382,15 +348,9 @@ class ToMe2D(nn.Module):
         """
         assert metric.dim() == 4, "metric must be BCHW"
         B, C, H, W = metric.shape
-
-        # 1) Horizontal plan on 'metric'
         plan_w = self._plan_along_width(metric, num_prune_w=num_prune_w)
         metric_w = self._merge_along_width(metric, plan_w)
-
-        # 2) Vertical plan on the horizontally-merged metric
         plan_h = self._plan_along_height(metric_w, num_prune_h=num_prune_h)
-
-        # Build the callable prune_fn that applies both stages to any BCHW tensor
         def prune_fn(x: torch.Tensor) -> torch.Tensor:
             assert x.dim() == 4, "input must be BCHW"
             # same spatial size as metric used to plan
@@ -402,7 +362,6 @@ class ToMe2D(nn.Module):
 
         return prune_fn
 
-    # ---------- Optional: weighted average merging (size map) ----------
     def merge_wavg2d(
         self,
         prune_fn_builder: Callable[..., Callable[[torch.Tensor], torch.Tensor]],
@@ -416,34 +375,25 @@ class ToMe2D(nn.Module):
         Returns: (x_merged, size_merged)
         """
         if size is None:
-            size = torch.ones_like(x[:, :1])  # BCH1
-
+            size = torch.ones_like(x[:, :1])
         prune_fn = prune_fn_builder(x)
         x_merged = prune_fn(x * size)
         size_merged = prune_fn(size)
-
         x_merged = x_merged / (size_merged + (size_merged == 0).to(x_merged.dtype))
         return x_merged, size_merged
+
 
 class FixedWindowToMe2Dv2(ToMe2D):
     """
     Window-aware 2D ToMe module.
-
-    在原 ToMe2D 的基础上增加 window 限制：
-      - 在宽度/高度方向的 pair 维度上切成不重叠窗口，
-      - 只在每个窗口内部根据相似度选要 merge 的 pair，
-      - 不同窗口之间的 pair 不再互相竞争。
-
-    窗口单位说明（很重要）：
-      - window_size, window_size_w, window_size_h 的单位都是 “pair index” 的长度，
-        即 self._pair_scores 返回的 scores[:, j] 中的 j 这一维。
-      - 举例：T_pair = 9, window_size_w = 3
-            -> 窗口: [0,1,2], [3,4,5], [6,7,8]。
-
-    行为：
-      - window_size_* 为 None 或 <= 0 时：退化为原始 ToMe2D（全局选 top r）。
-      - num_prune_w / num_prune_h 仍然是“每行 / 每列要 merge 的 pair 总数”，
-        只是在有 window 时，会按窗口长度比例分到各个窗口。
+    Extends ToMe2D by splitting the pair dimension into non-overlapping windows.
+    Merge selection occurs independently within each window; no cross-window competition.
+    Units:
+      - `window_size` (w/h) refers to "pair indices" (the `j` dim in `scores[:, j]`).
+      - Example: T_pair=9, window_size_w=3 → Windows: [0,1,2], [3,4,5], [6,7,8].
+    Behavior:
+      - If `window_size` is None or ≤ 0: Reverts to original ToMe2D (global top-r).
+      - `num_prune_w/h`: Total pairs to merge per row/col, distributed proportionally across windows.
     """
 
     def __init__(
@@ -453,9 +403,9 @@ class FixedWindowToMe2Dv2(ToMe2D):
         distance: str = "cosine",
         merge_mode: str = "sum",
         eps: float = 1e-6,
-        window_size: Optional[int] = None,       # 若给定，则作为 w/h 的默认窗口大小
-        window_size_w: Optional[int] = None,     # 沿 width 的 pair 窗口大小（单位：pair）
-        window_size_h: Optional[int] = None,     # 沿 height 的 pair 窗口大小（单位：pair）
+        window_size: Optional[int] = None,
+        window_size_w: Optional[int] = None,
+        window_size_h: Optional[int] = None,
     ):
         super().__init__(
             if_prune=if_prune,
@@ -464,58 +414,35 @@ class FixedWindowToMe2Dv2(ToMe2D):
             merge_mode=merge_mode,
             eps=eps,
         )
-
-        # 允许只给一个 window_size，当作 w/h 的默认值
         if window_size_w is None:
             window_size_w = window_size
         if window_size_h is None:
             window_size_h = window_size
-
         self.window_size_w = window_size_w
         self.window_size_h = window_size_h
 
-    # --------- helper: 把全局要 merge 的数量分配到每个窗口 ----------
     @staticmethod
     def _distribute_merges(
         total_pairs: int,
         total_to_merge: int,
         window_size: int,
     ) -> Tuple[int, list, list]:
-        """
-        Args:
-            total_pairs: T_pair，当前这行/列一共多少个候选 pair。
-            total_to_merge: 想在这一行/列里 merge 的 pair 总数 (已被 clamp 到 [0, T_pair])。
-            window_size: pair 维度上的窗口大小（>=1）。
 
-        Returns:
-            r_total: 实际分配出去的 merge 总数（一般等于 total_to_merge）
-            windows: [(start, end), ...] 不重叠窗口在 pair 维度上的区间（左闭右开）
-            r_per_win: 与 windows 同长，表示每个窗口内要 merge 的 pair 数。
-        """
         if total_pairs == 0:
             return 0, [], []
-
         win = max(int(window_size), 1)
         win = min(win, total_pairs)
-
-        # 构造窗口区间 [start, end)
         windows = []
         for start in range(0, total_pairs, win):
             end = min(start + win, total_pairs)
             windows.append((start, end))
         num_win = len(windows)
 
-        # 如果没得 merge，直接全 0
         if total_to_merge <= 0:
             return 0, windows, [0] * num_win
-
-        # 再保险地 clamp 一次
         total_to_merge = min(total_to_merge, total_pairs)
-
         lengths = [e - s for (s, e) in windows]
         ratio = float(total_to_merge) / float(total_pairs)
-
-        # 先按比例分配 floor(val)，记录小数部分方便后面做补偿
         r_per_win = []
         frac = []
         for L in lengths:
@@ -529,7 +456,6 @@ class FixedWindowToMe2Dv2(ToMe2D):
         assigned = sum(r_per_win)
         remain = total_to_merge - assigned
 
-        # 把剩下的 merge 额度，优先加给小数部分大的窗口
         if remain > 0:
             order = sorted(range(num_win), key=lambda i: frac[i], reverse=True)
             for idx in order:
@@ -542,29 +468,27 @@ class FixedWindowToMe2Dv2(ToMe2D):
         r_total = sum(r_per_win)
         return r_total, windows, r_per_win
 
-    # ---------- override: 带 window 的宽度方向 plan ----------
+    # overwrite: width
     def _plan_along_width(
         self,
         feat: torch.Tensor,
         num_prune_w: Optional[int],
     ):
-        # 无 window 时，直接用父类原实现（完全不改变行为）
+        # if no window, use super() method directly
         if self.window_size_w is None or self.window_size_w <= 0:
             return super()._plan_along_width(feat, num_prune_w)
 
         B, C, H, W = feat.shape
         device = feat.device
 
-        # [B, C, H, W] -> [N=B*H, W, C]
         x = feat.permute(0, 2, 3, 1).contiguous().view(B * H, W, C)
 
-        src = x[:, 0::2, :]  # [N, ceil(W/2), C]
-        dst = x[:, 1::2, :]  # [N, floor(W/2), C]
+        src = x[:, 0::2, :]
+        dst = x[:, 1::2, :]
         N, T_src, _ = src.shape
         T_dst = dst.shape[1]
 
         if T_dst == 0:
-            # 宽度为 1，无可合并
             return dict(
                 N=N,
                 W=W,
@@ -582,75 +506,56 @@ class FixedWindowToMe2Dv2(ToMe2D):
             )
 
         T_pair = T_dst
-        tail_len = T_src - T_pair  # 0 或 1
+        tail_len = T_src - T_pair
 
-        # 原逻辑：决定这一行最多要 merge 的 pair 总数
         if num_prune_w is None:
             r_global = T_pair
         else:
             r_global = max(min(num_prune_w, T_pair), 0)
 
-        # pair 相似度 [N, T_pair]
+        # Similarity Calculation
         scores = self._pair_scores(src[:, :T_pair, :], dst)
-
-        # 根据窗口，把 r_global 分配到各个窗口
         r_total, windows, r_per_win = self._distribute_merges(
             total_pairs=T_pair,
             total_to_merge=r_global,
             window_size=self.window_size_w,
         )
-
         unm_idx_chunks = []
         src_idx_chunks = []
         dst_idx_chunks = []
-
         for (start, end), r_win in zip(windows, r_per_win):
             length = end - start
             if length == 0:
                 continue
-
-            scores_w = scores[:, start:end]  # [N, length]
-            # 只在本窗口内部 sort
-            edge_idx_w = scores_w.argsort(dim=-1, descending=True)[..., None]  # [N, length, 1]
-
+            scores_w = scores[:, start:end]
+            edge_idx_w = scores_w.argsort(dim=-1, descending=True)[..., None]
             r_win = max(min(r_win, length), 0)
-
-            # 本窗口中不 merge 的 src index
             if r_win < length:
                 unm_idx_chunks.append(edge_idx_w[..., r_win:, :] + start)
-
-            # 本窗口中要 merge 的 src index（与 dst 的 pair index 相同）
             if r_win > 0:
                 sel = edge_idx_w[..., :r_win, :] + start
                 src_idx_chunks.append(sel)
                 dst_idx_chunks.append(sel.clone())
-
-        # 拼接所有窗口的 index
         unm_total = T_pair - r_total
         src_total = r_total
-
         if unm_total > 0:
             unm_idx = torch.cat(unm_idx_chunks, dim=-2)
         else:
-            # 没有未 merge 的 src，建一个空 tensor 即可
             unm_idx = torch.empty(N, 0, 1, dtype=torch.long, device=device)
 
         if src_total > 0:
             src_idx = torch.cat(src_idx_chunks, dim=-2)
             dst_idx = torch.cat(dst_idx_chunks, dim=-2)
         else:
-            # 没有 merge 的 src，同样给空 tensor，后面逻辑会跳过
             src_idx = torch.empty(N, 0, 1, dtype=torch.long, device=device)
             dst_idx = torch.empty(N, 0, 1, dtype=torch.long, device=device)
 
-        # 保留原来的“还原左右顺序”所需的位置信息
         idx_origin = torch.arange(W, device=device).view(1, W, 1).expand(N, W, 1)
-        src_orig = idx_origin[:, 0::2, :]        # [N, T_src, 1]
-        dst_orig = idx_origin[:, 1::2, :]        # [N, T_dst, 1]
-        tail_orig = src_orig[:, T_pair:, :]      # [N, tail_len, 1]
+        src_orig = idx_origin[:, 0::2, :]
+        dst_orig = idx_origin[:, 1::2, :]
+        tail_orig = src_orig[:, T_pair:, :]
 
         W_out = W - r_total
-
         plan = dict(
             N=N,
             W=W,
@@ -668,7 +573,7 @@ class FixedWindowToMe2Dv2(ToMe2D):
         )
         return plan
 
-    # ---------- override: 带 window 的高度方向 plan ----------
+    # override: height
     def _plan_along_height(
         self,
         feat_after_w: torch.Tensor,
@@ -680,7 +585,7 @@ class FixedWindowToMe2Dv2(ToMe2D):
         B, C, H, Ww = feat_after_w.shape
         device = feat_after_w.device
 
-        # [B, C, H, Ww] -> [N=B*Ww, H, C]，按列规划
+        # [B, C, H, Ww] -> [N=B*Ww, H, C]
         x = feat_after_w.permute(0, 3, 2, 1).contiguous().view(B * Ww, H, C)
 
         src = x[:, 0::2, :]   # [N, ceil(H/2), C]
@@ -783,53 +688,27 @@ class FixedWindowToMe2Dv2(ToMe2D):
         return plan
 
 if __name__ == '__main__':
-
-    # -------------------------
-    # 1. 生成测试输入：B=2, C=8, H=W=14
-    # -------------------------
     B, C, H, W = 2, 8, 14, 14
     metric = torch.randn(B, C, H, W)
     x = torch.randn(B, C, H, W)
-
     print("Input metric size:", metric.shape)
     print("Input x size     :", x.shape)
-
-    # -------------------------
-    # 2. 初始化 WindowToMe2D
-    # -------------------------
-    tome = FixedWindowToMe2Dv2(
-        window_size=3,        # 固定窗口 7×7
+    storm = FixedWindowToMe2Dv2(
+        window_size=3,
         distance='cosine',
         merge_mode='sum',
-        if_prune=False        # 使用 merge 而不是硬剪枝
+        if_prune=False
     )
-
-    # -------------------------
-    # 3. 设置目标输出 13×13
-    # -------------------------
     H_target, W_target = 10, 10
-
-    num_prune_h = H - H_target   # = 1
-    num_prune_w = W - W_target   # = 1
-
+    num_prune_h = H - H_target
+    num_prune_w = W - W_target
     print(f"\nPruning: prune_h={num_prune_h}, prune_w={num_prune_w}")
-
-    # -------------------------
-    # 4. 规划并执行 prune_fn
-    # -------------------------
-    prune_fn = tome(
+    prune_fn = storm(
         metric,
         num_prune_w=num_prune_w,
         num_prune_h=num_prune_h
     )
-
     y = prune_fn(x)
-
-    # -------------------------
-    # 5. 输出
-    # -------------------------
     print("Output y size:", y.shape)
-
-    # 验证是否正确剪到 13×13
     assert y.shape == (B, C, H_target, W_target)
-    print("\n✔ Test passed: output matches expected size 13×13")
+    print("\nTest passed: output matches expected size 13×13")
