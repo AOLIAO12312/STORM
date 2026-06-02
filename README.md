@@ -46,6 +46,7 @@ For detailed algorithmic descriptions and ablation studies, please refer to Sect
 
 
 ## ✅ Updates
+- `2026.5.1`: The paper is accepted by ICML 2026 🎉.
 
 - `2026.3.16`: The code is released.
 
