@@ -1,6 +1,5 @@
 
-# 🌪️ STORM: Spatial-Aware Reduction Framework: Towards  Efficient and Faithful  Visual State Space Models
-<p>
+# 🌪️ STORM
   <a href="_">
     <img src="https://img.shields.io/badge/arXiv-2512.01485-b31b1b.svg?style=flat" alt="arXiv">
   </a>
