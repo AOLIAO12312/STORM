@@ -1,6 +1,6 @@
 
 # 🌪️ STORM
-  <a href="_">
+  <a href="https://arxiv.org/abs/2606.19932">
     <img src="https://img.shields.io/badge/arXiv-2512.01485-b31b1b.svg?style=flat" alt="arXiv">
   </a>
 <a href="https://spatial-aware-reduction-framework.github.io/">
